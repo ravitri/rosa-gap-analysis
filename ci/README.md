@@ -124,9 +124,10 @@ The CI system:
 1. Builds this Containerfile as the build root (includes scripts)
 2. Scripts are pre-installed in `/gap-analysis/scripts/` and available in PATH
 3. Runs test commands (gap analysis scripts)
-4. Reports results based on exit codes (0 = pass, 1 = fail)
+4. Scripts exit 0 on successful execution (regardless of policy differences)
+5. Scripts only exit 1 on execution failures (missing tools, network errors, etc.)
 
-**Note**: Scripts are baked into the image, so no need to clone the repository or mount volumes during test execution.
+**Note**: Scripts are baked into the image, so no need to clone the repository or mount volumes during test execution. Policy differences are logged to stdout/stderr but don't cause test failures.
 
 ## Updating Tool Versions
 

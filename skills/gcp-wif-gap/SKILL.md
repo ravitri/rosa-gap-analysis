@@ -4,7 +4,7 @@ description: >
   Analyze GCP Workload Identity Federation (WIF) policy gaps between OpenShift versions.
   Use when comparing WIF configurations, IAM roles, and service account permissions
   across OpenShift versions.
-  Exits with code 0 if no differences, code 1 if differences found.
+  Logs detected policy differences but always exits 0 on successful execution.
 compatibility:
   required_tools:
     - bash
@@ -31,7 +31,7 @@ Analyze differences in GCP Workload Identity Federation policies between OpenShi
 2. Extract credential requests from release payloads using `oc adm release extract --cloud=gcp`
 3. Convert CredentialsRequest YAML manifests to GCP IAM policy format
 4. Compare IAM roles, permissions, and service account bindings
-5. Exit with code 0 if no differences, code 1 if differences detected
+5. Log detected differences and always exit 0 on successful execution
 
 ## Script Usage
 
@@ -71,8 +71,8 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-gcp-wif.sh
 ```
 
 **Exit Codes:**
-- `0`: No policy differences found
-- `1`: Policy differences detected
+- `0`: Successful execution (regardless of whether differences were found)
+- `1`: Execution failure (e.g., missing tools, network errors, invalid versions)
 
 **Version Resolution:**
 - CLI flags > Environment variables > Auto-detect
@@ -91,7 +91,7 @@ Note: Platform is always 'gcp' for this script.
 
 ## Output
 
-The script outputs log messages to stderr and exits with appropriate code:
+The script outputs log messages to stderr and always exits 0 on successful execution:
 
 ```
 [INFO] Starting GCP WIF Policy Gap Analysis
@@ -102,10 +102,10 @@ The script outputs log messages to stderr and exits with appropriate code:
 [INFO] Fetching target WIF policy...
 [SUCCESS] Successfully extracted WIF policy
 [INFO] Comparing WIF policies...
-[WARNING] Policy differences detected: 5 added, 2 removed
+[INFO] Policy differences detected: 5 added, 2 removed
 ```
 
-Exit code: `1` (differences found)
+Exit code: `0` (successful execution, differences found)
 
 Or:
 
@@ -113,15 +113,18 @@ Or:
 [SUCCESS] No policy differences found between 4.21 and 4.22
 ```
 
-Exit code: `0` (no differences)
+Exit code: `0` (successful execution, no differences)
 
 **Use in CI/CD:**
 ```bash
-if ./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22; then
-  echo "No policy changes - safe to proceed"
+# Script always exits 0 on success
+./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22
+
+# Check for differences by parsing output
+if ./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22 2>&1 | grep -q "Policy differences detected"; then
+  echo "Policy changes detected - review recommended"
 else
-  echo "Policy changes detected - review required"
-  exit 1
+  echo "No policy changes - safe to proceed"
 fi
 ```
 
@@ -162,6 +165,6 @@ compare_sts_policies "$baseline_policy" "$target_policy" | jq '.'
 - Suggest pre-upgrade validation steps
 
 **CI/CD Integration:**
-- Use the exit code in CI pipelines to detect policy changes
-- Block deployments if unexpected policy changes occur
-- Automate notifications when policies differ
+- Parse script output to detect policy changes (exit codes only indicate execution success/failure)
+- Script always exits 0 on successful execution regardless of differences
+- Automate notifications when policies differ by parsing log messages

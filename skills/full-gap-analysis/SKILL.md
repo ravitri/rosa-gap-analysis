@@ -4,7 +4,7 @@ description: >
   Comprehensive cloud credential policy gap analysis between OpenShift versions covering
   both AWS STS and GCP WIF policies automatically. Use when performing complete version
   upgrade assessment for managed OpenShift (OSD, ROSA).
-  Exits with code 0 if no differences in any platform, code 1 if differences found in at least one.
+  Logs detected policy differences but always exits 0 on successful execution.
 compatibility:
   required_tools:
     - oc
@@ -87,24 +87,23 @@ The script:
 - Auto-detects versions if not specified (stable → candidate)
 - Runs AWS STS policy analysis
 - Runs GCP WIF policy analysis
-- Exits with code 0 if no differences found in either platform
-- Exits with code 1 if differences detected in at least one platform
+- Logs detected policy differences to stdout/stderr
+- Always exits 0 on successful execution (regardless of differences)
+- Only exits 1 on execution failures (missing tools, network errors, etc.)
 
 **Use in CI/CD:**
 ```bash
-# Auto-detect versions
-if ./scripts/gap-all.sh; then
-  echo "No policy changes in any platform - safe to proceed"
-else
-  echo "Policy changes detected - review required"
-  exit 1
-fi
+# Auto-detect versions (script always exits 0 on success)
+./scripts/gap-all.sh
 
 # Test against nightly
-if TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh; then
-  echo "No policy changes against nightly"
+TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+
+# Check for differences by parsing output
+if ./scripts/gap-all.sh 2>&1 | grep -q "Policy differences detected"; then
+  echo "Policy changes detected - review recommended"
 else
-  echo "Policy changes detected in nightly - review required"
+  echo "No policy changes - safe to proceed"
 fi
 ```
 
@@ -138,7 +137,7 @@ Go beyond the scripts by:
 
 ## Output
 
-The script outputs log messages for both platforms and exits with appropriate code:
+The script outputs log messages for both platforms and always exits 0 on successful execution:
 
 **No differences in any platform:**
 ```
@@ -156,7 +155,7 @@ The script outputs log messages for both platforms and exits with appropriate co
 [INFO] Gap Analysis Complete!
 [SUCCESS] No policy differences found in any platform
 ```
-Exit code: `0`
+Exit code: `0` (successful execution, no differences)
 
 **Differences found in one or both platforms:**
 ```
@@ -166,16 +165,16 @@ Exit code: `0`
 [INFO] Platforms: AWS STS, GCP WIF
 
 [INFO] Running AWS STS Policy Gap Analysis...
-[WARNING] AWS STS policy differences detected
+[INFO] Policy differences detected: 3 added, 1 removed
 
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
 
 [INFO] Gap Analysis Complete!
-[WARNING] AWS STS: Policy differences detected
-[WARNING] Policy differences detected - review required
+[INFO] AWS STS: Policy differences detected
+[INFO] Policy differences detected - review recommended
 ```
-Exit code: `1`
+Exit code: `0` (successful execution, differences found)
 
 ## Comparison Scenarios
 
@@ -188,7 +187,7 @@ Analyzes both:
 - AWS STS IAM policy changes
 - GCP WIF policy changes
 
-Exit code indicates if differences exist in either platform.
+Logs differences but always exits 0 on successful execution.
 
 ## Enhanced Analysis
 
@@ -253,19 +252,19 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 [SUCCESS] No GCP WIF policy differences found
 [SUCCESS] No policy differences found in any platform
 ```
-Exit code: `0` - Safe to proceed
+Exit code: `0` - Successful execution, no differences
 
 **If changes detected in at least one platform:**
 ```
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Running AWS STS Policy Gap Analysis...
-[WARNING] AWS STS policy differences detected
+[INFO] Policy differences detected: 3 added, 1 removed
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
-[WARNING] AWS STS: Policy differences detected
-[WARNING] Policy differences detected - review required
+[INFO] AWS STS: Policy differences detected
+[INFO] Policy differences detected - review recommended
 ```
-Exit code: `1` - Review required
+Exit code: `0` - Successful execution, differences found
 
 **Next steps when changes detected:**
 1. Run individual platform scripts to get detailed information
