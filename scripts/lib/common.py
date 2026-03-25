@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Common utilities for gap analysis scripts."""
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+
+# ANSI color codes
+class Colors:
+    """ANSI color codes for terminal output."""
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[0;33m'
+    BLUE = '\033[0;34m'
+    RESET = '\033[0m'
+
+
+def log_info(message):
+    """Log an info message."""
+    print(f"{Colors.BLUE}[INFO]{Colors.RESET} {message}", file=sys.stderr)
+
+
+def log_success(message):
+    """Log a success message."""
+    print(f"{Colors.GREEN}[SUCCESS]{Colors.RESET} {message}", file=sys.stderr)
+
+
+def log_warning(message):
+    """Log a warning message."""
+    print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} {message}", file=sys.stderr)
+
+
+def log_error(message):
+    """Log an error message."""
+    print(f"{Colors.RED}[ERROR]{Colors.RESET} {message}", file=sys.stderr)
+
+
+def check_command(command):
+    """Check if a command is available in PATH."""
+    if not shutil.which(command):
+        log_error(f"{command} not found. Please install {command}.")
+        sys.exit(1)
+
+
+def get_project_root():
+    """Get the project root directory."""
+    # Script is in scripts/lib, so project root is two levels up
+    return Path(__file__).parent.parent.parent.resolve()

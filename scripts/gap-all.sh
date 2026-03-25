@@ -14,6 +14,7 @@ PROJECT_ROOT="$(get_project_root)"
 BASELINE=""
 TARGET=""
 VERBOSE=false
+REPORT_DIR="${REPORT_DIR:-reports}"
 
 usage() {
     cat <<EOF
@@ -26,12 +27,14 @@ Optional Arguments:
   --baseline <version>     Baseline version (default: auto-detect from latest stable)
   --target <version>       Target version (default: auto-detect from latest candidate)
   --verbose                Enable verbose logging
+  --report-dir <path>      Directory to store reports (default: reports/)
   -h, --help               Show this help
 
 Environment Variables:
   BASE_VERSION            Override baseline version (lower precedence than --baseline)
   TARGET_VERSION          Override target version (lower precedence than --target)
                           Special values: NIGHTLY (dev nightly), CANDIDATE (dev candidate)
+  REPORT_DIR              Directory to store reports (default: reports/)
 
 Version Resolution Precedence (highest to lowest):
   1. Command-line flags (--baseline, --target)
@@ -70,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --baseline) BASELINE="$2"; shift 2 ;;
         --target) TARGET="$2"; shift 2 ;;
         --verbose) VERBOSE=true; shift ;;
+        --report-dir) REPORT_DIR="$2"; shift 2 ;;
         -h|--help) usage ;;
         *) log_error "Unknown option: $1"; usage ;;
     esac
@@ -127,25 +131,32 @@ if [[ "$VERBOSE" == "true" ]]; then
 fi
 
 main() {
+    # Create report directory if it doesn't exist
+    mkdir -p "$REPORT_DIR"
+
     log_info "========================================="
     log_info "  OpenShift Gap Analysis Suite"
     log_info "========================================="
     log_info "Baseline: $BASELINE"
     log_info "Target:   $TARGET"
-    log_info "Platforms: AWS STS, GCP WIF"
+    log_info "Platforms: AWS STS, GCP WIF, Feature Gates"
+    log_info "Report Directory: $REPORT_DIR"
     log_info "========================================="
 
     local aws_result=0
     local gcp_result=0
+    local feature_gates_result=0
     local aws_output=""
     local gcp_output=""
+    local feature_gates_output=""
 
     # Run AWS STS analysis
     log_info ""
     log_info "Running AWS STS Policy Gap Analysis..."
-    aws_output=$(bash "${SCRIPT_DIR}/gap-aws-sts.sh" \
+    aws_output=$(python3 "${SCRIPT_DIR}/gap-aws-sts.py" \
         --baseline "$BASELINE" \
         --target "$TARGET" \
+        --report-dir "$REPORT_DIR" \
         $VERBOSE_FLAG 2>&1) || {
         log_error "AWS STS analysis failed to execute"
         exit 1
@@ -158,9 +169,10 @@ main() {
     # Run GCP WIF analysis
     log_info ""
     log_info "Running GCP WIF Policy Gap Analysis..."
-    gcp_output=$(bash "${SCRIPT_DIR}/gap-gcp-wif.sh" \
+    gcp_output=$(python3 "${SCRIPT_DIR}/gap-gcp-wif.py" \
         --baseline "$BASELINE" \
         --target "$TARGET" \
+        --report-dir "$REPORT_DIR" \
         $VERBOSE_FLAG 2>&1) || {
         log_error "GCP WIF analysis failed to execute"
         exit 1
@@ -170,14 +182,30 @@ main() {
         gcp_result=1
     fi
 
+    # Run Feature Gates analysis
+    log_info ""
+    log_info "Running Feature Gates Gap Analysis..."
+    feature_gates_output=$(python3 "${SCRIPT_DIR}/gap-feature-gates.py" \
+        --baseline "$BASELINE" \
+        --target "$TARGET" \
+        --report-dir "$REPORT_DIR" \
+        $VERBOSE_FLAG 2>&1) || {
+        log_error "Feature Gates analysis failed to execute"
+        exit 1
+    }
+    echo "$feature_gates_output" >&2
+    if echo "$feature_gates_output" | grep -q "Feature gate differences detected"; then
+        feature_gates_result=1
+    fi
+
     # Print summary
     log_info ""
     log_info "========================================="
     log_info "  Gap Analysis Complete!"
     log_info "========================================="
 
-    if [[ $aws_result -eq 0 ]] && [[ $gcp_result -eq 0 ]]; then
-        log_success "No policy differences found in any platform"
+    if [[ $aws_result -eq 0 ]] && [[ $gcp_result -eq 0 ]] && [[ $feature_gates_result -eq 0 ]]; then
+        log_success "No policy or feature gate differences found"
     else
         if [[ $aws_result -eq 1 ]]; then
             log_info "AWS STS: Policy differences detected"
@@ -185,8 +213,21 @@ main() {
         if [[ $gcp_result -eq 1 ]]; then
             log_info "GCP WIF: Policy differences detected"
         fi
-        log_info "Policy differences detected - review recommended"
+        if [[ $feature_gates_result -eq 1 ]]; then
+            log_info "Feature Gates: Differences detected"
+        fi
+        log_info "Differences detected - review recommended"
     fi
+
+    # Generate combined report
+    log_info ""
+    log_info "Generating combined report..."
+    python3 "${SCRIPT_DIR}/generate-combined-report.py" \
+        --baseline "$BASELINE" \
+        --target "$TARGET" \
+        --report-dir "$REPORT_DIR" 2>&1 || {
+        log_warning "Failed to generate combined report (individual reports still available)"
+    }
 
     # Always exit 0 on successful completion
     exit 0

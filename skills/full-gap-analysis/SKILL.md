@@ -1,10 +1,10 @@
 ---
 name: full-gap-analysis
 description: >
-  Comprehensive cloud credential policy gap analysis between OpenShift versions covering
-  both AWS STS and GCP WIF policies automatically. Use when performing complete version
-  upgrade assessment for managed OpenShift (OSD, ROSA).
-  Logs detected policy differences but always exits 0 on successful execution.
+  Comprehensive gap analysis between OpenShift versions covering AWS STS policies,
+  GCP WIF policies, and feature gates. Use when performing complete version upgrade
+  assessment for managed OpenShift (OSD, ROSA).
+  Logs detected differences but always exits 0 on successful execution.
 compatibility:
   required_tools:
     - oc
@@ -14,8 +14,8 @@ compatibility:
 
 # Full Gap Analysis
 
-Orchestrate comprehensive gap analysis for cloud credential policies across OpenShift versions.
-Automatically analyzes both AWS STS and GCP WIF platforms.
+Orchestrate comprehensive gap analysis across OpenShift versions.
+Automatically analyzes AWS STS policies, GCP WIF policies, and feature gates.
 
 ## When to Use
 
@@ -28,7 +28,7 @@ Automatically analyzes both AWS STS and GCP WIF platforms.
 
 ## What This Analyzes
 
-Automatically analyzes both platforms:
+Automatically analyzes all of:
 
 1. **AWS STS IAM Policies**
    - IAM permission changes
@@ -40,7 +40,13 @@ Automatically analyzes both platforms:
    - GCP IAM role/permission changes
    - Service account bindings
 
-The script runs both analyses and reports if differences exist in either platform.
+3. **Feature Gates**
+   - New feature gates added
+   - Feature gates removed
+   - Gates newly enabled by default
+   - Gates removed from default
+
+The script runs all analyses and reports if differences exist in any area.
 
 ## Workflow
 
@@ -85,11 +91,20 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 
 The script:
 - Auto-detects versions if not specified (stable → candidate)
-- Runs AWS STS policy analysis
-- Runs GCP WIF policy analysis
-- Logs detected policy differences to stdout/stderr
+- Runs AWS STS policy analysis (Python)
+- Runs GCP WIF policy analysis (Python)
+- Runs feature gate analysis (Python)
+- Generates individual reports for each analysis (MD, HTML, JSON)
+- Generates combined report aggregating all analyses
+- Logs detected differences to stdout/stderr
 - Always exits 0 on successful execution (regardless of differences)
 - Only exits 1 on execution failures (missing tools, network errors, etc.)
+
+**Report Files Generated:**
+- `reports/gap-analysis-aws-sts_*.{md,html,json}`
+- `reports/gap-analysis-gcp-wif_*.{md,html,json}`
+- `reports/gap-analysis-feature-gates_*.{md,html,json}`
+- `reports/gap-analysis-full_*.{md,html,json}` (combined report)
 
 **Use in CI/CD:**
 ```bash
@@ -139,12 +154,12 @@ Go beyond the scripts by:
 
 The script outputs log messages for both platforms and always exits 0 on successful execution:
 
-**No differences in any platform:**
+**No differences:**
 ```
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Baseline: 4.21
 [INFO] Target: 4.22
-[INFO] Platforms: AWS STS, GCP WIF
+[INFO] Platforms: AWS STS, GCP WIF, Feature Gates
 
 [INFO] Running AWS STS Policy Gap Analysis...
 [SUCCESS] No AWS STS policy differences found
@@ -152,17 +167,20 @@ The script outputs log messages for both platforms and always exits 0 on success
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
 
+[INFO] Running Feature Gates Gap Analysis...
+[SUCCESS] No feature gate differences found between 4.21 and 4.22
+
 [INFO] Gap Analysis Complete!
-[SUCCESS] No policy differences found in any platform
+[SUCCESS] No policy or feature gate differences found
 ```
 Exit code: `0` (successful execution, no differences)
 
-**Differences found in one or both platforms:**
+**Differences found:**
 ```
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Baseline: 4.21
 [INFO] Target: 4.22
-[INFO] Platforms: AWS STS, GCP WIF
+[INFO] Platforms: AWS STS, GCP WIF, Feature Gates
 
 [INFO] Running AWS STS Policy Gap Analysis...
 [INFO] Policy differences detected: 3 added, 1 removed
@@ -170,9 +188,15 @@ Exit code: `0` (successful execution, no differences)
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
 
+[INFO] Running Feature Gates Gap Analysis...
+[INFO] Feature gate differences detected:
+[INFO]   - New feature gates: 5
+[INFO]   - Newly enabled by default: 2
+
 [INFO] Gap Analysis Complete!
 [INFO] AWS STS: Policy differences detected
-[INFO] Policy differences detected - review recommended
+[INFO] Feature Gates: Differences detected
+[INFO] Differences detected - review recommended
 ```
 Exit code: `0` (successful execution, differences found)
 
@@ -183,9 +207,10 @@ Exit code: `0` (successful execution, differences found)
 Baseline: 4.21
 Target: 4.22
 ```
-Analyzes both:
+Analyzes all of:
 - AWS STS IAM policy changes
 - GCP WIF policy changes
+- Feature gate changes
 
 Logs differences but always exits 0 on successful execution.
 
@@ -243,26 +268,32 @@ While scripts provide credential policy data, add strategic value:
 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ```
 
-**If no changes in any platform:**
+**If no changes:**
 ```
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Running AWS STS Policy Gap Analysis...
 [SUCCESS] No AWS STS policy differences found
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
-[SUCCESS] No policy differences found in any platform
+[INFO] Running Feature Gates Gap Analysis...
+[SUCCESS] No feature gate differences found between 4.21 and 4.22
+[SUCCESS] No policy or feature gate differences found
 ```
 Exit code: `0` - Successful execution, no differences
 
-**If changes detected in at least one platform:**
+**If changes detected:**
 ```
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Running AWS STS Policy Gap Analysis...
 [INFO] Policy differences detected: 3 added, 1 removed
 [INFO] Running GCP WIF Policy Gap Analysis...
 [SUCCESS] No GCP WIF policy differences found
+[INFO] Running Feature Gates Gap Analysis...
+[INFO] Feature gate differences detected:
+[INFO]   - New feature gates: 5
 [INFO] AWS STS: Policy differences detected
-[INFO] Policy differences detected - review recommended
+[INFO] Feature Gates: Differences detected
+[INFO] Differences detected - review recommended
 ```
 Exit code: `0` - Successful execution, differences found
 

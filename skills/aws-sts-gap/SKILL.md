@@ -5,12 +5,12 @@ description: >
   Use when comparing AWS STS policies across OpenShift versions.
   Identifies new permissions, removed permissions, and changed permission scopes.
   Logs detected policy differences but always exits 0 on successful execution.
+  Automatically generates comprehensive reports in Markdown, HTML, and JSON formats.
 compatibility:
   required_tools:
-    - bash
+    - python3
     - oc (OpenShift CLI - for extracting credential requests)
-    - jq (for JSON processing)
-    - yq or python3 with PyYAML (for YAML parsing)
+    - PyYAML (for YAML processing)
 ---
 
 # AWS STS Policy Gap Analysis
@@ -44,36 +44,50 @@ Parse the comparison request to identify:
 
 ### Step 2: Run the Gap Analysis Script
 
-Execute the `scripts/gap-aws-sts.sh` script:
+Execute the `scripts/gap-aws-sts.py` Python script:
 
 **Auto-detect versions (recommended):**
 ```bash
 # Compares latest stable → latest candidate
-./scripts/gap-aws-sts.sh
+python3 ./scripts/gap-aws-sts.py
 
 # Use nightly as target
-TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
+TARGET_VERSION=NIGHTLY python3 ./scripts/gap-aws-sts.py
+
+# Custom report directory
+python3 ./scripts/gap-aws-sts.py --report-dir /custom/reports
 ```
 
 **Explicit versions:**
 ```bash
-./scripts/gap-aws-sts.sh \
+python3 ./scripts/gap-aws-sts.py \
   --baseline <version> \
   --target <version> \
+  [--report-dir <path>] \
   [--verbose]
 
 # Examples
-./scripts/gap-aws-sts.sh --baseline 4.21.6 --target 4.22.0-ec.3
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
+python3 ./scripts/gap-aws-sts.py --baseline 4.21.6 --target 4.22.0-ec.3
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 ```
 
 **Environment variables:**
 ```bash
 # Override versions
-BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 ./scripts/gap-aws-sts.sh
+BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 python3 ./scripts/gap-aws-sts.py
 
 # Use nightly
-TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
+TARGET_VERSION=NIGHTLY python3 ./scripts/gap-aws-sts.py
+
+# Custom report location
+REPORT_DIR=/ci-artifacts python3 ./scripts/gap-aws-sts.py
+```
+
+**Generated Reports:**
+```bash
+reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.md    # Markdown
+reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.html  # HTML
+reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.json  # JSON
 ```
 
 Note: Platform is always 'aws' for this script.
@@ -182,18 +196,21 @@ Exit code: `0` (successful execution, no differences)
 The script provides a simple pass/fail check. For detailed analysis, you can:
 
 **Extract Detailed Comparison Data:**
-If you need to analyze what changed, you can run the comparison functions manually:
+The script automatically generates JSON reports with structured comparison data:
 ```bash
-# Extract policies to temp files
-baseline_policy=$(mktemp)
-target_policy=$(mktemp)
+# Run analysis to generate reports
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 
-# Get policies (using functions from the script)
-get_sts_policy "4.21" > "$baseline_policy"
-get_sts_policy "4.22" > "$target_policy"
+# Extract specific data from JSON report
+jq '.comparison.actions.target_only' reports/gap-analysis-aws-sts_*.json  # Added actions
+jq '.comparison.actions.baseline_only' reports/gap-analysis-aws-sts_*.json  # Removed actions
+jq '.comparison.actions.common' reports/gap-analysis-aws-sts_*.json  # Unchanged actions
 
-# Compare and examine results
-compare_sts_policies "$baseline_policy" "$target_policy" | jq '.'
+# View human-readable report
+cat reports/gap-analysis-aws-sts_*.md
+
+# Open HTML report in browser
+firefox reports/gap-analysis-aws-sts_*.html
 ```
 
 **Context and Explanation:**
@@ -249,7 +266,8 @@ echo $?  # 0 = no changes, 1 = changes detected
 **Response**:
 ```bash
 # Execute the gap analysis with auto-detection
-./scripts/gap-aws-sts.sh
+python3 ./scripts/gap-aws-sts.py
+# Reports generated in: ./reports/
 ```
 
 **User**: "Check if AWS STS policies changed between OpenShift 4.21 and 4.22"
@@ -257,7 +275,8 @@ echo $?  # 0 = no changes, 1 = changes detected
 **Response**:
 ```bash
 # Execute the gap analysis
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22 --verbose
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22 --verbose
+# View results: cat reports/gap-analysis-aws-sts_*.md
 ```
 
 **User**: "Check AWS STS policies against latest nightly"
@@ -265,7 +284,8 @@ echo $?  # 0 = no changes, 1 = changes detected
 **Response**:
 ```bash
 # Execute with nightly target
-TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
+TARGET_VERSION=NIGHTLY python3 ./scripts/gap-aws-sts.py
+# Review HTML report: firefox reports/gap-analysis-aws-sts_*.html
 ```
 
 **What happens:**
@@ -305,13 +325,19 @@ Exit code: `0` (successful execution)
 **Use in CI/CD:**
 ```bash
 # Script always exits 0 on success
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 
 # Check for differences by parsing output
-if ./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22 2>&1 | grep -q "Policy differences detected"; then
-  echo "Policy changes detected - review recommended"
+if python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22 2>&1 | grep -q "Policy differences detected"; then
+  echo "Policy changes detected - review reports/"
 else
   echo "No policy changes - safe to proceed"
+fi
+
+# Use JSON report for programmatic analysis
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+if jq -e '.comparison.actions.target_only | length > 0' reports/gap-analysis-aws-sts_*.json >/dev/null 2>&1; then
+  echo "New permissions detected"
 fi
 ```
 

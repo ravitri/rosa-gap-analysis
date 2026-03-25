@@ -4,21 +4,24 @@ A comprehensive framework for analyzing gaps between different versions and plat
 
 ## Overview
 
-This repository provides both automated scripts (for CI/Prow) and Claude AI skills for identifying and analyzing cloud credential policy gaps across OpenShift versions:
+This repository provides both automated scripts (for CI/Prow) and Claude AI skills for identifying and analyzing gaps across OpenShift versions:
 
 - **AWS STS Policies**: IAM permission changes for AWS-based clusters (OSD AWS, ROSA Classic, ROSA HCP)
 - **GCP WIF Policies**: Workload Identity Federation permission changes for GCP-based clusters (OSD GCP)
+- **Feature Gates**: Feature gate additions, removals, and default enablement changes
 
-**Exit Codes**: Scripts exit with code 0 if no policy differences found, code 1 if differences detected - designed for CI/CD integration.
+**Exit Codes**: Scripts exit with code 0 on successful execution (regardless of differences), code 1 only on execution failures (missing tools, network errors).
+
+**Report Generation**: All scripts automatically generate comprehensive reports in Markdown, HTML, and JSON formats for easy analysis and CI/CD integration.
 
 ## Quick Start
 
 ### Prerequisites
 
 - `oc` CLI (OpenShift client) - **required** for extracting credential requests from releases
-- `jq` - **required** for JSON processing
-- `yq` or `python3` with PyYAML - **required** for YAML parsing
-- `curl` - **required** for fetching release information
+- `python3` - **required** for running gap analysis scripts
+- `PyYAML` - **required** for YAML parsing (`pip install pyyaml`)
+- `curl` - **required** for fetching release information (Sippy API)
 - Claude Code (optional) - for using AI skills
 
 ### Local Usage
@@ -29,28 +32,41 @@ This repository provides both automated scripts (for CI/Prow) and Claude AI skil
 # Run analysis with auto-detected versions
 # Baseline: latest stable version (e.g., 4.21.6)
 # Target: latest candidate version (e.g., 4.22.0-ec.3)
+# Analyzes: AWS STS, GCP WIF, and Feature Gates
+# Generates reports in: ./reports/ directory
 ./scripts/gap-all.sh
-# Exit code 0: No differences, Exit code 1: Differences found
+# Exit code 0: Successful execution (regardless of differences)
+# Exit code 1: Execution failure
 
 # Auto-detect with nightly target
 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 
 # Individual platform analysis with auto-detection
-./scripts/gap-aws-sts.sh
-./scripts/gap-gcp-wif.sh
+python3 ./scripts/gap-aws-sts.py
+python3 ./scripts/gap-gcp-wif.py
+python3 ./scripts/gap-feature-gates.py
+
+# Custom report directory
+REPORT_DIR=/path/to/reports ./scripts/gap-all.sh
 ```
 
 #### Specify versions explicitly
 
 ```bash
 # Analyze AWS STS policy gaps between specific versions
-./scripts/gap-aws-sts.sh --baseline 4.21.6 --target 4.22.0-ec.3
+python3 ./scripts/gap-aws-sts.py --baseline 4.21.6 --target 4.22.0-ec.3
 
 # Analyze GCP WIF policy gaps
-./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22
+python3 ./scripts/gap-gcp-wif.py --baseline 4.21 --target 4.22
 
-# Run analysis for both AWS STS and GCP WIF
+# Analyze feature gate changes
+python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
+
+# Run analysis for all platforms (AWS STS, GCP WIF, Feature Gates)
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
+
+# Specify custom report directory
+./scripts/gap-all.sh --baseline 4.21 --target 4.22 --report-dir /custom/reports
 ```
 
 #### Use environment variables
@@ -60,45 +76,42 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 ./scripts/gap-all.sh
 
 # Use nightly build as target
-TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
+TARGET_VERSION=NIGHTLY python3 ./scripts/gap-aws-sts.py
 
 # Explicit candidate (same as default)
-TARGET_VERSION=CANDIDATE ./scripts/gap-gcp-wif.sh
+TARGET_VERSION=CANDIDATE python3 ./scripts/gap-gcp-wif.py
+
+# Custom report directory
+REPORT_DIR=/custom/path ./scripts/gap-all.sh
 ```
 
 #### Use in CI/CD pipelines
 
 ```bash
-# Block on policy changes (auto-detect versions)
-if ! ./scripts/gap-all.sh; then
-  echo "Policy changes detected - review required"
+# Run analysis and check for differences (scripts exit 0 on success)
+./scripts/gap-all.sh || {
+  echo "Gap analysis execution failed"
   exit 1
+}
+
+# Check for differences by parsing output
+if ./scripts/gap-all.sh 2>&1 | grep -q "differences detected"; then
+  echo "Policy or feature gate changes detected - review recommended"
+  # Reports are in ./reports/ directory
 fi
 
 # Test against nightly builds
-if ! TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh; then
-  echo "Policy changes detected in nightly - review required"
-  exit 1
-fi
-
-# Explicit version checks
-if ! ./scripts/gap-all.sh --baseline 4.21 --target 4.22; then
-  echo "Policy changes detected - review required"
-  exit 1
-fi
-
-# Allow policy changes but notify
-if ./scripts/gap-all.sh; then
-  echo "No policy changes detected in any platform"
-else
-  echo "Policy changes detected in at least one platform" | notify-slack
+if TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh 2>&1 | grep -q "differences detected"; then
+  echo "Changes detected in nightly - review reports/"
 fi
 
 # Individual platform checks with auto-detection
-if ! ./scripts/gap-aws-sts.sh; then
-  echo "AWS policy changes detected - review required"
-  exit 1
-fi
+python3 ./scripts/gap-aws-sts.py || exit 1
+python3 ./scripts/gap-gcp-wif.py || exit 1
+python3 ./scripts/gap-feature-gates.py || exit 1
+
+# Generate reports in custom location for CI artifacts
+REPORT_DIR=./ci-artifacts/gap-reports ./scripts/gap-all.sh
 ```
 
 ### Using Claude Skills
@@ -119,28 +132,35 @@ The skills will leverage the scripts while providing intelligent analysis and re
 
 ```
 gap-analysis/
-├── scripts/                    # Executable bash scripts
-│   ├── lib/                   # Shared libraries
-│   │   ├── common.sh         # Utilities (logging, colors, etc.)
-│   │   └── openshift-releases.sh  # OpenShift version/release queries
-│   ├── gap-aws-sts.sh        # AWS STS policy gap analysis
-│   ├── gap-gcp-wif.sh        # GCP WIF policy gap analysis
-│   └── gap-all.sh            # Run all analyses
+├── scripts/                       # Gap analysis scripts
+│   ├── lib/                      # Shared libraries
+│   │   ├── common.py            # Python utilities (logging, etc.)
+│   │   ├── openshift_releases.py # Version resolution (Python)
+│   │   ├── reporters.py         # Report generation (MD, HTML, JSON)
+│   │   ├── common.sh            # Bash utilities
+│   │   └── openshift-releases.sh # Version queries (Bash)
+│   ├── gap-aws-sts.py           # AWS STS policy gap analysis
+│   ├── gap-gcp-wif.py           # GCP WIF policy gap analysis
+│   ├── gap-feature-gates.py     # Feature gate gap analysis
+│   ├── gap-all.sh               # Orchestrator (runs all analyses)
+│   └── generate-combined-report.py # Combined report generator
 │
-├── skills/                    # Claude AI skills
-│   ├── aws-sts-gap/          # AWS STS gap analysis skill
-│   ├── gcp-wif-gap/          # GCP WIF gap analysis skill
-│   └── full-gap-analysis/    # Full gap analysis orchestration
+├── skills/                       # Claude AI skills
+│   ├── aws-sts-gap/             # AWS STS gap analysis skill
+│   ├── gcp-wif-gap/             # GCP WIF gap analysis skill
+│   ├── feature-gates-gap/       # Feature gates gap analysis skill
+│   └── full-gap-analysis/       # Full gap analysis orchestration
 │
-├── .prow/                     # Prow CI configuration
-├── docs/                      # Documentation
-├── results/                   # Generated reports (gitignored)
-└── examples/                  # Example outputs
+├── reports/                      # Generated reports (default location)
+├── .prow/                        # Prow CI configuration
+├── docs/                         # Documentation
+├── REPORTS.md                    # Report generation documentation
+└── examples/                     # Example outputs
 ```
 
 ## Gap Analysis Types
 
-### 1. AWS STS Policies (`gap-aws-sts.sh`)
+### 1. AWS STS Policies (`gap-aws-sts.py`)
 
 Compares AWS Security Token Service (STS) policies between versions to identify:
 - New IAM permissions required
@@ -151,12 +171,13 @@ Compares AWS Security Token Service (STS) policies between versions to identify:
 
 **Example:**
 ```bash
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
-# Exit code 0: No differences
-# Exit code 1: Differences found
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+# Exit code 0: Successful execution (regardless of differences)
+# Exit code 1: Execution failure
+# Reports: ./reports/gap-analysis-aws-sts_*.{md,html,json}
 ```
 
-### 2. GCP WIF Policies (`gap-gcp-wif.sh`)
+### 2. GCP WIF Policies (`gap-gcp-wif.py`)
 
 Compares Google Cloud Workload Identity Federation policies to identify:
 - New GCP IAM roles/permissions
@@ -167,9 +188,28 @@ Compares Google Cloud Workload Identity Federation policies to identify:
 
 **Example:**
 ```bash
-./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22
-# Exit code 0: No differences
-# Exit code 1: Differences found
+python3 ./scripts/gap-gcp-wif.py --baseline 4.21 --target 4.22
+# Exit code 0: Successful execution (regardless of differences)
+# Exit code 1: Execution failure
+# Reports: ./reports/gap-analysis-gcp-wif_*.{md,html,json}
+```
+
+### 3. Feature Gates (`gap-feature-gates.py`)
+
+Compares feature gates between OpenShift versions using the Sippy API to identify:
+- New feature gates added
+- Feature gates removed
+- Gates newly enabled by default
+- Gates removed from default
+
+**Uses Sippy Feature Gates API** - queries feature gate data for specified versions.
+
+**Example:**
+```bash
+python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
+# Exit code 0: Successful execution (regardless of differences)
+# Exit code 1: Execution failure
+# Reports: ./reports/gap-analysis-feature-gates_*.{md,html,json}
 ```
 
 ### 3. OpenShift Release Information Library (`lib/openshift-releases.sh`)
@@ -245,13 +285,15 @@ All scripts support these optional flags:
                         # Examples: 4.21, 4.21.6, full pullspec
 --target <version>      # Target version (default: auto-detect from latest candidate)
                         # Examples: 4.22, 4.22.0-ec.3, full pullspec
+--report-dir <path>     # Directory to store reports (default: reports/)
+                        # Reports are saved in MD, HTML, and JSON formats
 --verbose               # Enable verbose logging
 -h, --help              # Show help message
 ```
 
 ### Environment Variables
 
-Override versions using environment variables (lower precedence than CLI flags):
+Override settings using environment variables (lower precedence than CLI flags):
 
 ```bash
 BASE_VERSION           # Override baseline version
@@ -262,6 +304,9 @@ TARGET_VERSION         # Override target version
                        # Special values:
                        #   NIGHTLY - latest dev nightly build
                        #   CANDIDATE - latest dev candidate (default)
+
+REPORT_DIR             # Directory to store reports (default: reports/)
+                       # All scripts generate reports in this location
 ```
 
 ### Version Resolution Precedence
@@ -279,11 +324,19 @@ When versions are auto-detected:
 - **Dev version**: Always exactly GA + 1 (e.g., GA=`4.21`, dev=`4.22`)
 - **Pullspecs**: Automatically fetched and used when auto-detecting
 
-**Note:** The gap-all.sh script runs analysis for both AWS and GCP platforms automatically.
+**Note:** The `gap-all.sh` script runs analysis for all platforms automatically (AWS STS, GCP WIF, and Feature Gates) and generates a combined report.
 
 **Exit Codes:**
-- `0`: No policy differences found in any platform
-- `1`: Policy differences detected in at least one platform
+- `0`: Successful execution (regardless of whether differences were found)
+- `1`: Execution failure (missing tools, network errors, invalid versions)
+
+**Report Generation:**
+Each analysis generates three report formats:
+- **Markdown** (`.md`) - Human-readable formatted reports
+- **HTML** (`.html`) - Styled web-viewable reports
+- **JSON** (`.json`) - Machine-readable structured data
+
+Additionally, `gap-all.sh` generates a combined report aggregating all analyses.
 
 ## Comparison Scenarios
 
@@ -332,31 +385,24 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
 
 ## Output Format
 
-Scripts output log messages to stderr and exit with appropriate codes:
+Scripts output log messages to stderr and automatically generate reports in the configured report directory (default: `./reports/`).
 
 **Auto-detected versions (no differences found):**
 ```
-[INFO] Auto-detecting baseline version from latest stable...
-[INFO] Auto-detected baseline version: 4.21.6
-[INFO] Auto-detected baseline pullspec: quay.io/openshift-release-dev/ocp-release:4.21.6-x86_64
-[INFO] Auto-detecting target version from latest candidate...
-[INFO] Auto-detected target version: 4.22.0-ec.3
-[INFO] Auto-detected target pullspec: quay.io/openshift-release-dev/ocp-release:4.22.0-ec.3-x86_64
 [INFO] Starting AWS STS Policy Gap Analysis
-[INFO] =========================================
 [INFO] Baseline version: 4.21.6
-[INFO] Baseline pullspec: quay.io/openshift-release-dev/ocp-release:4.21.6-x86_64
 [INFO] Target version: 4.22.0-ec.3
-[INFO] Target pullspec: quay.io/openshift-release-dev/ocp-release:4.22.0-ec.3-x86_64
-[INFO] =========================================
 [INFO] Fetching baseline STS policy...
 [SUCCESS] Successfully extracted STS policy
 [INFO] Fetching target STS policy...
 [SUCCESS] Successfully extracted STS policy
 [INFO] Comparing STS policies...
 [SUCCESS] No policy differences found between 4.21.6 and 4.22.0-ec.3
+[SUCCESS] Markdown report generated: reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.md
+[SUCCESS] HTML report generated: reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.html
+[SUCCESS] JSON report generated: reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.json
 ```
-Exit code: `0`
+Exit code: `0` (successful execution, no differences)
 
 **Differences found:**
 ```
@@ -368,11 +414,26 @@ Exit code: `0`
 [INFO] Fetching target STS policy...
 [SUCCESS] Successfully extracted STS policy
 [INFO] Comparing STS policies...
-[WARNING] Policy differences detected: 3 added, 1 removed
+[INFO] Policy differences detected: 3 added, 1 removed
+[SUCCESS] Markdown report generated: reports/gap-analysis-aws-sts_4.21_to_4.22_20260325_120000.md
+[SUCCESS] HTML report generated: reports/gap-analysis-aws-sts_4.21_to_4.22_20260325_120000.html
+[SUCCESS] JSON report generated: reports/gap-analysis-aws-sts_4.21_to_4.22_20260325_120000.json
 ```
-Exit code: `1`
+Exit code: `0` (successful execution, differences found)
 
-**For detailed analysis**, you can extract comparison data manually using the comparison functions in `scripts/lib/common.sh`.
+**For detailed analysis**, view the generated reports:
+```bash
+# View Markdown report
+cat reports/gap-analysis-aws-sts_*.md
+
+# Open HTML report in browser
+firefox reports/gap-analysis-aws-sts_*.html
+
+# Parse JSON report programmatically
+jq '.comparison' reports/gap-analysis-aws-sts_*.json
+```
+
+See [REPORTS.md](REPORTS.md) for comprehensive report documentation.
 
 ## Examples
 
@@ -385,17 +446,27 @@ See the `examples/` directory for sample outputs:
 
 ```bash
 # Enable verbose mode (see detailed logging)
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22 --verbose
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22 --verbose
 
 # Test GCP WIF analysis
-./scripts/gap-gcp-wif.sh --baseline 4.21 --target 4.22 --verbose
+python3 ./scripts/gap-gcp-wif.py --baseline 4.21 --target 4.22 --verbose
 
-# Check exit code
-if ./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22; then
-  echo "No differences found"
+# Test feature gates analysis
+python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22 --verbose
+
+# Run all analyses
+./scripts/gap-all.sh --baseline 4.21 --target 4.22
+
+# Check execution status (scripts exit 0 on success)
+if python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22; then
+  echo "Analysis completed successfully - check reports/ for results"
 else
-  echo "Differences found"
+  echo "Analysis execution failed"
 fi
+
+# View generated reports
+ls -lh reports/
+cat reports/gap-analysis-aws-sts_*.md
 ```
 
 ### Comparing with osdctl
@@ -406,30 +477,38 @@ You can validate AWS STS results against osdctl:
 # Using osdctl (simple diff)
 osdctl iampermissions diff -c aws -b 4.21 -t 4.22
 
-# Using gap-analysis (exit code based)
-./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
-echo "Exit code: $?"
+# Using gap-analysis (generates comprehensive reports)
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+cat reports/gap-analysis-aws-sts_*.md
 ```
 
-Both use the same `oc adm release extract --credentials-requests --cloud=aws` under the hood.
+Both use the same `oc adm release extract --credentials-requests --cloud=aws` under the hood, but gap-analysis provides:
+- Automatic report generation in MD, HTML, and JSON formats
+- Structured comparison data for CI/CD integration
+- Combined analysis across AWS, GCP, and feature gates
 
 ### Extracting Detailed Comparison Data
 
-If you need detailed comparison data for analysis:
+All scripts automatically generate JSON reports with structured comparison data:
 
 ```bash
-# Source the functions
-source scripts/lib/common.sh
-source scripts/gap-aws-sts.sh
+# Run analysis to generate reports
+python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 
-# Extract policies to temp files
-baseline_policy=$(mktemp)
-target_policy=$(mktemp)
-get_sts_policy "4.21" > "$baseline_policy"
-get_sts_policy "4.22" > "$target_policy"
+# Extract specific data from JSON report
+jq '.comparison.actions.target_only' reports/gap-analysis-aws-sts_*.json  # Added actions
+jq '.comparison.actions.baseline_only' reports/gap-analysis-aws-sts_*.json  # Removed actions
 
-# Compare and analyze
-compare_sts_policies "$baseline_policy" "$target_policy" | jq '.actions'
+# Feature gates comparison
+python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
+jq '.comparison.added' reports/gap-analysis-feature-gates_*.json  # New gates
+jq '.comparison.newly_enabled_by_default' reports/gap-analysis-feature-gates_*.json
+
+# Combined report for all platforms
+./scripts/gap-all.sh --baseline 4.21 --target 4.22
+jq '.aws_sts.comparison' reports/gap-analysis-full_*.json
+jq '.gcp_wif.comparison' reports/gap-analysis-full_*.json
+jq '.feature_gates.comparison' reports/gap-analysis-full_*.json
 ```
 
 ## Support
