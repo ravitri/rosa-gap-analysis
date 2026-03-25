@@ -11,19 +11,18 @@ The `Containerfile` defines a container image with all the tools required to run
 | Tool | Version | Purpose |
 |------|---------|---------|
 | **oc CLI** | 4.21 (stable) | Extract CredentialsRequests from OpenShift release images |
-| **jq** | System package | Process and compare JSON policy documents |
-| **yq** | v4.52.4 | Parse YAML CredentialsRequest manifests |
-| **Python 3** | System package | Run `parse-credentials-request.py` helper script |
-| **PyYAML** | System package | Python YAML parsing library |
-| **bash** | System package | Execute gap analysis shell scripts |
-| **Gap Analysis Scripts** | Latest from repo | Pre-installed scripts for gap analysis workflows |
+| **Python 3** | System package | Main runtime for gap analysis scripts |
+| **PyYAML** | System package | YAML parsing for credential requests and configuration |
+| **curl** | System package | Fetch data from Sippy API (releases, feature gates) |
+| **bash** | System package | Execute gap-all.sh orchestrator script |
+| **Gap Analysis Scripts** | Latest from repo | Pre-installed Python and bash scripts for gap analysis workflows |
 
 ### Why These Tools?
 
 - **oc CLI**: Required for `oc adm release extract --credentials-requests --cloud={aws,gcp}` to extract credential requests from release payloads
-- **jq**: Processes and compares IAM/WIF policy JSON documents, extracts action-level differences
-- **yq**: Alternative YAML parser (preferred over Python for performance)
-- **Python 3 + PyYAML**: Fallback YAML parser used by `scripts/lib/parse-credentials-request.py`
+- **Python 3 + PyYAML**: Main runtime for gap analysis scripts (gap-aws-sts.py, gap-gcp-wif.py, gap-feature-gates.py), YAML processing, report generation
+- **curl**: Fetches release data and feature gates from Sippy API
+- **bash**: Orchestrator script (gap-all.sh) that calls Python analysis scripts and generates combined reports
 - **Gap Analysis Scripts**: Pre-installed in `/gap-analysis/scripts/` and added to PATH for direct execution
 
 ## Base Image
@@ -67,24 +66,28 @@ podman build -f ci/Containerfile -t rosa-gap-analysis:latest .
 ```bash
 # Run gap analysis in the container (scripts are pre-installed)
 podman run --rm rosa-gap-analysis:latest \
-  gap-aws-sts.sh --baseline 4.21 --target 4.22
-
-# Or with full path
-podman run --rm rosa-gap-analysis:latest \
-  /gap-analysis/scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
-
-# Run all gap analyses
-podman run --rm rosa-gap-analysis:latest \
   gap-all.sh --baseline 4.21 --target 4.22
+
+# Individual Python scripts
+podman run --rm rosa-gap-analysis:latest \
+  python3 /gap-analysis/scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+
+podman run --rm rosa-gap-analysis:latest \
+  python3 /gap-analysis/scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
 
 # Verify all tools are available
 podman run --rm rosa-gap-analysis:latest bash -c "
   oc version --client &&
-  jq --version &&
-  yq --version &&
   python3 --version &&
-  gap-aws-sts.sh --help
+  python3 -c 'import yaml; print(\"PyYAML OK\")' &&
+  curl --version &&
+  gap-all.sh --help
 "
+
+# Test with report generation (mount volume to access reports)
+podman run --rm -v $(pwd)/reports:/gap-analysis/reports rosa-gap-analysis:latest \
+  gap-all.sh --baseline 4.21 --target 4.22
+ls -lh reports/
 ```
 
 ## CI Integration
@@ -100,15 +103,26 @@ build_root:
 tests:
 - as: gap-analysis-aws
   commands: |
-    # Scripts are pre-installed and in PATH
-    gap-aws-sts.sh --baseline 4.21 --target 4.22
+    # Scripts are pre-installed, generates reports in ./reports/
+    python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+    ls -lh reports/
+  container:
+    from: src
+
+- as: gap-analysis-feature-gates
+  commands: |
+    # Feature gates analysis with Sippy API
+    python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
+    cat reports/gap-analysis-feature-gates_*.md
   container:
     from: src
 
 - as: gap-analysis-all
   commands: |
-    # Run all gap analyses (AWS STS and GCP WIF)
+    # Run all gap analyses (AWS STS, GCP WIF, and Feature Gates)
+    # Generates individual and combined reports
     gap-all.sh --baseline 4.21 --target 4.22
+    ls -lh reports/
   container:
     from: src
 
@@ -116,6 +130,15 @@ tests:
   commands: |
     # Test against latest nightly
     TARGET_VERSION=NIGHTLY gap-all.sh
+    # Reports saved to ./reports/ with timestamped filenames
+  container:
+    from: src
+
+- as: gap-analysis-with-artifacts
+  commands: |
+    # Generate reports in CI artifacts directory
+    mkdir -p ${ARTIFACT_DIR}/gap-reports
+    REPORT_DIR=${ARTIFACT_DIR}/gap-reports gap-all.sh
   container:
     from: src
 ```
@@ -123,11 +146,13 @@ tests:
 The CI system:
 1. Builds this Containerfile as the build root (includes scripts)
 2. Scripts are pre-installed in `/gap-analysis/scripts/` and available in PATH
-3. Runs test commands (gap analysis scripts)
-4. Scripts exit 0 on successful execution (regardless of policy differences)
-5. Scripts only exit 1 on execution failures (missing tools, network errors, etc.)
+3. Runs test commands (Python gap analysis scripts for AWS STS, GCP WIF, and Feature Gates)
+4. Scripts automatically generate reports in MD, HTML, and JSON formats
+5. Scripts exit 0 on successful execution (regardless of policy or feature gate differences)
+6. Scripts only exit 1 on execution failures (missing tools, network errors, etc.)
+7. Reports can be saved to `${ARTIFACT_DIR}` for CI artifact collection
 
-**Note**: Scripts are baked into the image, so no need to clone the repository or mount volumes during test execution. Policy differences are logged to stdout/stderr but don't cause test failures.
+**Note**: Scripts are baked into the image, so no need to clone the repository or mount volumes during test execution. Policy and feature gate differences are logged to stdout/stderr and saved to comprehensive reports, but don't cause test failures.
 
 ## Updating Tool Versions
 
@@ -158,22 +183,39 @@ Check latest releases: https://github.com/mikefarah/yq/releases
 The container image has the following structure:
 
 ```
-/gap-analysis/                    # Working directory (WORKDIR)
-├── scripts/                      # Gap analysis scripts (copied from repo)
-│   ├── gap-all.sh               # Orchestrator script
-│   ├── gap-aws-sts.sh           # AWS STS gap analysis
-│   ├── gap-gcp-wif.sh           # GCP WIF gap analysis
-│   └── lib/                     # Shared libraries
-│       ├── common.sh            # Utilities
-│       └── openshift-releases.sh # Version query library
+/gap-analysis/                       # Working directory (WORKDIR)
+├── scripts/                         # Gap analysis scripts (copied from repo)
+│   ├── gap-all.sh                  # Orchestrator script (bash)
+│   ├── gap-aws-sts.py              # AWS STS gap analysis (Python)
+│   ├── gap-gcp-wif.py              # GCP WIF gap analysis (Python)
+│   ├── gap-feature-gates.py        # Feature gate gap analysis (Python)
+│   ├── generate-combined-report.py # Combined report generator (Python)
+│   └── lib/                        # Shared libraries
+│       ├── common.py               # Python utilities (logging, etc.)
+│       ├── openshift_releases.py   # Version resolution (Python)
+│       ├── reporters.py            # Report generation (MD, HTML, JSON)
+│       ├── common.sh               # Bash utilities
+│       └── openshift-releases.sh   # Version resolution (Bash)
+├── reports/                         # Default report directory (created at runtime)
+│   ├── gap-analysis-aws-sts_*.md
+│   ├── gap-analysis-aws-sts_*.html
+│   ├── gap-analysis-aws-sts_*.json
+│   ├── gap-analysis-gcp-wif_*.{md,html,json}
+│   ├── gap-analysis-feature-gates_*.{md,html,json}
+│   └── gap-analysis-full_*.{md,html,json}  # Combined report
 ```
 
 **PATH Configuration**:
 - `/gap-analysis/scripts/` is added to PATH
 - `/gap-analysis/scripts/lib/` is added to PATH
-- Scripts can be executed directly by name: `gap-all.sh`, `gap-aws-sts.sh`, etc.
+- Scripts can be executed directly by name: `gap-all.sh`, `python3 gap-aws-sts.py`, etc.
 
 **Working Directory**: `/gap-analysis`
+
+**Report Generation**:
+- All scripts automatically generate reports in `./reports/` by default
+- Override with `--report-dir` flag or `REPORT_DIR` environment variable
+- Reports include MD (human-readable), HTML (web-viewable), and JSON (machine-readable) formats
 
 ## Related Documentation
 
