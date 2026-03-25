@@ -163,7 +163,7 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Analyze AWS STS policy gaps between two OpenShift versions.
-Exits with code 0 if no policy differences found, non-zero if differences exist.
+Logs detected policy differences but always exits 0 on successful execution.
 
 Optional Arguments:
   --baseline <version>    Baseline version (default: auto-detect from latest stable)
@@ -199,8 +199,8 @@ Examples:
   TARGET_VERSION=CANDIDATE $0
 
 Exit Codes:
-  0 - No policy differences found
-  1 - Policy differences detected
+  0 - Successful execution (regardless of whether differences were found)
+  1 - Execution failure (e.g., missing tools, network errors, invalid versions)
 
 Note: This script analyzes AWS STS policies only. Platform is always 'aws'.
 
@@ -333,11 +333,12 @@ main() {
 
     if [[ $total_changes -eq 0 ]]; then
         log_success "No policy differences found between $BASELINE and $TARGET"
-        exit 0
     else
-        log_warning "Policy differences detected: $added_count added, $removed_count removed"
-        exit 1
+        log_info "Policy differences detected: $added_count added, $removed_count removed"
     fi
+
+    # Always exit 0 on successful completion
+    exit 0
 }
 
 # Run main function

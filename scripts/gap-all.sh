@@ -20,7 +20,7 @@ usage() {
 Usage: $0 [OPTIONS]
 
 Run gap analysis between two OpenShift versions for both AWS and GCP platforms.
-Exits with code 0 if no policy differences found, non-zero if differences exist.
+Logs detected policy differences but always exits 0 on successful execution.
 
 Optional Arguments:
   --baseline <version>     Baseline version (default: auto-detect from latest stable)
@@ -58,8 +58,8 @@ Examples:
   TARGET_VERSION=CANDIDATE $0
 
 Exit Codes:
-  0 - No policy differences found in either platform
-  1 - Policy differences detected in at least one platform
+  0 - Successful execution (regardless of whether differences were found)
+  1 - Execution failure (e.g., missing tools, network errors, invalid versions)
 
 EOF
     exit 1
@@ -137,30 +137,36 @@ main() {
 
     local aws_result=0
     local gcp_result=0
+    local aws_output=""
+    local gcp_output=""
 
     # Run AWS STS analysis
     log_info ""
     log_info "Running AWS STS Policy Gap Analysis..."
-    if bash "${SCRIPT_DIR}/gap-aws-sts.sh" \
+    aws_output=$(bash "${SCRIPT_DIR}/gap-aws-sts.sh" \
         --baseline "$BASELINE" \
         --target "$TARGET" \
-        $VERBOSE_FLAG; then
-        log_success "No AWS STS policy differences found"
-    else
-        log_warning "AWS STS policy differences detected"
+        $VERBOSE_FLAG 2>&1) || {
+        log_error "AWS STS analysis failed to execute"
+        exit 1
+    }
+    echo "$aws_output" >&2
+    if echo "$aws_output" | grep -q "Policy differences detected"; then
         aws_result=1
     fi
 
     # Run GCP WIF analysis
     log_info ""
     log_info "Running GCP WIF Policy Gap Analysis..."
-    if bash "${SCRIPT_DIR}/gap-gcp-wif.sh" \
+    gcp_output=$(bash "${SCRIPT_DIR}/gap-gcp-wif.sh" \
         --baseline "$BASELINE" \
         --target "$TARGET" \
-        $VERBOSE_FLAG; then
-        log_success "No GCP WIF policy differences found"
-    else
-        log_warning "GCP WIF policy differences detected"
+        $VERBOSE_FLAG 2>&1) || {
+        log_error "GCP WIF analysis failed to execute"
+        exit 1
+    }
+    echo "$gcp_output" >&2
+    if echo "$gcp_output" | grep -q "Policy differences detected"; then
         gcp_result=1
     fi
 
@@ -172,17 +178,18 @@ main() {
 
     if [[ $aws_result -eq 0 ]] && [[ $gcp_result -eq 0 ]]; then
         log_success "No policy differences found in any platform"
-        exit 0
     else
         if [[ $aws_result -eq 1 ]]; then
-            log_warning "AWS STS: Policy differences detected"
+            log_info "AWS STS: Policy differences detected"
         fi
         if [[ $gcp_result -eq 1 ]]; then
-            log_warning "GCP WIF: Policy differences detected"
+            log_info "GCP WIF: Policy differences detected"
         fi
-        log_warning "Policy differences detected - review required"
-        exit 1
+        log_info "Policy differences detected - review recommended"
     fi
+
+    # Always exit 0 on successful completion
+    exit 0
 }
 
 main "$@"

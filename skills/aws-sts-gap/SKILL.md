@@ -4,7 +4,7 @@ description: >
   Analyze AWS STS (Security Token Service) IAM policy gaps between OpenShift versions.
   Use when comparing AWS STS policies across OpenShift versions.
   Identifies new permissions, removed permissions, and changed permission scopes.
-  Exits with code 0 if no differences, code 1 if differences found.
+  Logs detected policy differences but always exits 0 on successful execution.
 compatibility:
   required_tools:
     - bash
@@ -31,7 +31,7 @@ Trigger this skill when:
 1. **Extracts credential requests** from OpenShift release payloads using `oc adm release extract`
 2. **Converts CredentialsRequest manifests** to consolidated IAM policy JSON documents
 3. **Compares IAM permissions** at action-level and service-level to identify changes
-4. **Returns exit code** indicating whether policy differences exist (0 = no changes, 1 = changes detected)
+4. **Logs policy differences** and always exits 0 on successful execution (only exits 1 on execution failures)
 
 ## Workflow
 
@@ -83,11 +83,11 @@ Note: Platform is always 'aws' for this script.
 2. Extracts credential requests from both versions using `oc adm release extract --credentials-requests --cloud=aws`
 3. Parses YAML CredentialsRequest manifests and converts to IAM policy JSON
 4. Compares policies at action-level and service-level
-5. Exits with code 0 if no differences found, code 1 if differences detected
+5. Logs detected differences and always exits 0 on successful execution
 
 **Exit Codes:**
-- `0`: No policy differences found
-- `1`: Policy differences detected
+- `0`: Successful execution (regardless of whether differences were found)
+- `1`: Execution failure (e.g., missing tools, network errors, invalid versions)
 
 **This uses the same approach as osdctl** for data extraction.
 
@@ -127,20 +127,22 @@ The script converts CredentialsRequest YAML manifests to IAM policy JSON:
 
 ### Step 5: Interpret Results
 
-The script exits with:
-- **Exit code 0**: No policy differences found between baseline and target
-- **Exit code 1**: Policy differences detected (permissions added or removed)
-
-The script logs:
-- Number of added permissions
-- Number of removed permissions
+The script always exits with code 0 on successful execution and logs:
+- Number of added permissions (if any)
+- Number of removed permissions (if any)
 - Summary message indicating result
+
+The script only exits with code 1 on execution failures:
+- Missing required tools (jq, oc CLI)
+- Network errors fetching release images
+- Invalid version strings
+- Other execution errors
 
 **For detailed analysis**, you can examine the temporary comparison files before they're cleaned up by adding custom logic, or re-run the analysis with the `compare_sts_policies` function from `scripts/lib/common.sh`.
 
 ## Output Format
 
-The script outputs log messages to stderr and exits with appropriate code:
+The script outputs log messages to stderr and always exits 0 on successful execution:
 
 ```
 [INFO] Starting AWS STS Policy Gap Analysis
@@ -155,10 +157,10 @@ The script outputs log messages to stderr and exits with appropriate code:
 [INFO] Fetching target STS policy...
 [SUCCESS] Successfully extracted STS policy
 [INFO] Comparing STS policies...
-[WARNING] Policy differences detected: 3 added, 1 removed
+[INFO] Policy differences detected: 3 added, 1 removed
 ```
 
-Exit code: `1` (differences found)
+Exit code: `0` (successful execution, differences found)
 
 Or:
 
@@ -166,7 +168,7 @@ Or:
 [SUCCESS] No policy differences found between 4.21 and 4.22
 ```
 
-Exit code: `0` (no differences)
+Exit code: `0` (successful execution, no differences)
 
 ## Important Considerations
 
@@ -212,9 +214,9 @@ compare_sts_policies "$baseline_policy" "$target_policy" | jq '.'
 - Suggest pre-upgrade validation steps
 
 **CI/CD Integration:**
-- Use the exit code in CI pipelines to detect policy changes
-- Block deployments if unexpected policy changes occur
-- Automate notifications when policies differ
+- Parse script output to detect policy changes (exit codes only indicate execution success/failure)
+- Script always exits 0 on successful execution regardless of differences
+- Automate notifications when policies differ by parsing log messages
 
 ## osdctl Integration
 
@@ -287,9 +289,9 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-aws-sts.sh
 [INFO] Fetching target STS policy...
 [SUCCESS] Successfully extracted STS policy
 [INFO] Comparing STS policies...
-[WARNING] Policy differences detected: 3 added, 1 removed
+[INFO] Policy differences detected: 3 added, 1 removed
 ```
-Exit code: `1`
+Exit code: `0` (successful execution)
 
 **Sample Output (no differences):**
 ```
@@ -298,15 +300,18 @@ Exit code: `1`
 [INFO] Target version: 4.22
 [SUCCESS] No policy differences found between 4.21 and 4.22
 ```
-Exit code: `0`
+Exit code: `0` (successful execution)
 
 **Use in CI/CD:**
 ```bash
-if ./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22; then
-  echo "No policy changes - safe to proceed"
+# Script always exits 0 on success
+./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22
+
+# Check for differences by parsing output
+if ./scripts/gap-aws-sts.sh --baseline 4.21 --target 4.22 2>&1 | grep -q "Policy differences detected"; then
+  echo "Policy changes detected - review recommended"
 else
-  echo "Policy changes detected - review required"
-  exit 1
+  echo "No policy changes - safe to proceed"
 fi
 ```
 
