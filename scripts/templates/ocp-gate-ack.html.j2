@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ type }} Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #0066cc;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #444;
+            margin-top: 30px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+        h3 {
+            color: #555;
+            margin-top: 20px;
+        }
+        .metadata {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .metadata p {
+            margin: 5px 0;
+        }
+        .status-banner {
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-align: center;
+        }
+        .status-banner.ready {
+            background-color: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+        }
+        .status-banner.not-ready {
+            background-color: #f8d7da;
+            border: 2px solid #dc3545;
+            color: #721c24;
+        }
+        .summary-card {
+            display: inline-block;
+            margin: 10px;
+            padding: 20px;
+            background-color: #e3f2fd;
+            border-radius: 5px;
+            border-left: 4px solid #0066cc;
+            min-width: 150px;
+        }
+        .summary-card h4 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+        .summary-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #0066cc;
+        }
+        .summary-card.success {
+            background-color: #e8f5e9;
+            border-left-color: #4caf50;
+        }
+        .summary-card.success .value {
+            color: #4caf50;
+        }
+        .summary-card.error {
+            background-color: #ffebee;
+            border-left-color: #f44336;
+        }
+        .summary-card.error .value {
+            color: #f44336;
+        }
+        .summary-card.warning {
+            background-color: #fff3e0;
+            border-left-color: #ff9800;
+        }
+        .summary-card.warning .value {
+            color: #ff9800;
+        }
+        .gate-list {
+            list-style: none;
+            padding: 0;
+        }
+        .gate-list li {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .gate-list li.acknowledged {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+        }
+        .gate-list li.unacknowledged {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+        .gate-list li.extra {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border-left: 4px solid #0066cc;
+        }
+        .alert {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+        .alert.error {
+            background-color: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+        .alert.info {
+            background-color: #d1ecf1;
+            border-color: #17a2b8;
+            color: #0c5460;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ type }}</h1>
+
+        <div class="metadata">
+            <p><strong>Generated:</strong> {{ timestamp }}</p>
+            <p><strong>Baseline Version:</strong> {{ baseline_full }} ({{ baseline }})</p>
+            <p><strong>Target Version:</strong> {{ target_full }} ({{ target }})</p>
+        </div>
+
+        <div class="status-banner {% if summary.upgrade_ready %}ready{% else %}not-ready{% endif %}">
+            {% if summary.upgrade_ready %}
+            ✅ UPGRADE READY - All admin gates are properly acknowledged
+            {% else %}
+            ❌ UPGRADE NOT READY - Acknowledgments required or missing
+            {% endif %}
+        </div>
+
+        <h2>Summary</h2>
+
+        <div>
+            <div class="summary-card">
+                <h4>Gates Requiring Ack</h4>
+                <div class="value">{{ summary.gates_requiring_ack }}</div>
+            </div>
+            <div class="summary-card success">
+                <h4>Acknowledged</h4>
+                <div class="value">{{ summary.acknowledged }}</div>
+            </div>
+            <div class="summary-card error">
+                <h4>Unacknowledged</h4>
+                <div class="value">{{ summary.unacknowledged }}</div>
+            </div>
+            <div class="summary-card warning">
+                <h4>Extra Acks</h4>
+                <div class="value">{{ summary.extra_acks }}</div>
+            </div>
+        </div>
+
+        <h2>Details</h2>
+
+        {% if summary.gates_requiring_ack == 0 %}
+        <div class="alert info">
+            <strong>No Admin Gates:</strong> No admin gates found in baseline version {{ baseline }}. Upgrade to {{ target }} requires no acknowledgments.
+        </div>
+        {% else %}
+
+        {% if summary.ack_file_missing %}
+        <div class="alert error">
+            <h3>❌ Acknowledgment File Missing</h3>
+            <p><strong>Critical Issue:</strong> The admin acknowledgment file for version {{ target }} was not found.</p>
+            <p><strong>Required file:</strong> <code>deploy/osd-cluster-acks/ocp/{{ target }}/admin-ack.yaml</code> in the <code>openshift/managed-cluster-config</code> repository.</p>
+            <p><strong>Action Required:</strong> Create the acknowledgment file to allow upgrades from {{ baseline }} to {{ target }}.</p>
+        </div>
+        {% endif %}
+
+        {% if analysis.acknowledged_gates %}
+        <h3>✅ Acknowledged Gates</h3>
+        <p>The following gates are properly acknowledged in {{ target }}:</p>
+        <ul class="gate-list">
+            {% for gate in analysis.acknowledged_gates %}
+            <li class="acknowledged">✅ <code>{{ gate }}</code></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if analysis.unacknowledged_gates %}
+        <h3>❌ Unacknowledged Gates</h3>
+        <div class="alert error">
+            <p><strong>Critical Issue:</strong> The following gates are NOT acknowledged in {{ target }}:</p>
+        </div>
+        <ul class="gate-list">
+            {% for gate in analysis.unacknowledged_gates %}
+            <li class="unacknowledged">❌ <code>{{ gate }}</code></li>
+            {% endfor %}
+        </ul>
+        <p><strong>Action Required:</strong> Add acknowledgments for these gates to <code>deploy/osd-cluster-acks/ocp/{{ target }}/admin-ack.yaml</code>.</p>
+        {% endif %}
+
+        {% if analysis.extra_acks %}
+        <h3>ℹ️ Extra Acknowledgments</h3>
+        <p>The following acknowledgments are present in {{ target }} but not required by baseline {{ baseline }}:</p>
+        <ul class="gate-list">
+            {% for ack in analysis.extra_acks %}
+            <li class="extra">ℹ️ <code>{{ ack }}</code></li>
+            {% endfor %}
+        </ul>
+        <p><em>These may be acknowledgments for gates from other versions or pre-emptive acknowledgments.</em></p>
+        {% endif %}
+        {% endif %}
+
+        <h2>Gate Data</h2>
+
+        <h3>Baseline Gates ({{ baseline }})</h3>
+        {% if baseline_gates %}
+        <pre><code>{% for key, value in baseline_gates.items() %}{{ key }}: |
+  {{ value | indent(2) }}
+{% endfor %}</code></pre>
+        {% else %}
+        <p>No admin gates found.</p>
+        {% endif %}
+
+        <h3>Target Acknowledgments ({{ target }})</h3>
+        {% if target_acks %}
+        <pre><code>{% for key, value in target_acks.items() %}{{ key }}: |
+  {{ value | indent(2) }}
+{% endfor %}</code></pre>
+        {% elif summary.ack_file_missing %}
+        <p><strong>File not found.</strong></p>
+        {% else %}
+        <p>No acknowledgments found.</p>
+        {% endif %}
+
+        <h2>References</h2>
+        <ul>
+            <li><strong>CVO Admin Gates:</strong> <a href="https://github.com/openshift/cluster-version-operator/blob/release-{{ baseline }}/install/0000_00_cluster-version-operator_01_admingate_configmap.yaml" target="_blank">cluster-version-operator/release-{{ baseline }}</a></li>
+            <li><strong>MCC Admin Acks:</strong> <a href="https://github.com/openshift/managed-cluster-config/blob/master/deploy/osd-cluster-acks/ocp/{{ target }}/admin-ack.yaml" target="_blank">managed-cluster-config/{{ target }}</a></li>
+        </ul>
+
+        <div class="footer">
+            <p>Generated by OpenShift Gap Analysis Tool</p>
+        </div>
+    </div>
+</body>
+</html>

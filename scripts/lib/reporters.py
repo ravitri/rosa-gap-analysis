@@ -43,6 +43,8 @@ def generate_markdown_report(data: Dict[str, Any], output_file: str = None) -> s
         template = jinja_env.get_template('gcp-wif.md.j2')
     elif 'Feature Gate' in report_type:
         template = jinja_env.get_template('feature-gates.md.j2')
+    elif 'OCP Admin Gate' in report_type or 'Gate Acknowledgment' in report_type:
+        template = jinja_env.get_template('ocp-gate-ack.md.j2')
     elif 'Full Gap Analysis' in report_type:
         template = jinja_env.get_template('full-gap.md.j2')
     else:
@@ -70,6 +72,8 @@ def generate_html_report(data: Dict[str, Any], output_file: str = None) -> str:
         template = jinja_env.get_template('gcp-wif.html.j2')
     elif 'Feature Gate' in report_type:
         template = jinja_env.get_template('feature-gates.html.j2')
+    elif 'OCP Admin Gate' in report_type or 'Gate Acknowledgment' in report_type:
+        template = jinja_env.get_template('ocp-gate-ack.html.j2')
     elif 'Full Gap Analysis' in report_type:
         template = jinja_env.get_template('full-gap.html.j2')
     else:

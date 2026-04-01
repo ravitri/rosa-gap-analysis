@@ -145,6 +145,15 @@
                 <p><strong>Newly Default:</strong> {{ feature_gates.comparison.newly_enabled_by_default|length }}</p>
             </div>
             {% endif %}
+
+            {% if ocp_gate_ack %}
+            <div class="summary-card {{ 'success' if ocp_gate_ack.summary.upgrade_ready else 'warning' }}">
+                <h3>OCP Admin Gates</h3>
+                <p><strong>Status:</strong> {% if ocp_gate_ack.summary.upgrade_ready %}✅ Ready{% else %}❌ Not Ready{% endif %}</p>
+                <p><strong>Requiring Ack:</strong> {{ ocp_gate_ack.summary.gates_requiring_ack }}</p>
+                <p><strong>Unacknowledged:</strong> {{ ocp_gate_ack.summary.unacknowledged }}</p>
+            </div>
+            {% endif %}
         </div>
 
         {% if aws_sts and (aws_sts.comparison.actions.target_only or aws_sts.comparison.actions.baseline_only) %}
@@ -314,6 +323,80 @@
                 <tr>
                     <td><code>{{ gate }}</code></td>
                     <td class="removed">⚠️ Removed from Default</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+        {% endif %}
+
+        {% if ocp_gate_ack %}
+        <h2>OCP Admin Gate Acknowledgment Details</h2>
+
+        {% if ocp_gate_ack.summary.gates_requiring_ack == 0 %}
+        <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <strong>✅ No admin gates in baseline version</strong> - No acknowledgments required for upgrade
+        </div>
+        {% if ocp_gate_ack.summary.ack_file_missing %}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <strong>⚠️ WARNING</strong>
+            <p>Acknowledgment file not found for version <strong>{{ ocp_gate_ack.target }}</strong></p>
+            <p>Expected file: <code>deploy/osd-cluster-acks/ocp/{{ ocp_gate_ack.target }}/admin-ack.yaml</code></p>
+            <p><em>Note: No gates currently require acknowledgment, but the file should exist for this version.</em></p>
+        </div>
+        {% endif %}
+        {% else %}
+        {% if not ocp_gate_ack.summary.upgrade_ready %}
+        <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <strong>❌ UPGRADE NOT READY</strong>
+            {% if ocp_gate_ack.summary.ack_file_missing %}
+            <p>Acknowledgment file is missing for version {{ ocp_gate_ack.target }}</p>
+            {% endif %}
+            {% if ocp_gate_ack.summary.unacknowledged > 0 %}
+            <p>{{ ocp_gate_ack.summary.unacknowledged }} gate(s) are not acknowledged</p>
+            {% endif %}
+        </div>
+        {% else %}
+        <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <strong>✅ UPGRADE READY</strong> - All admin gates are properly acknowledged
+        </div>
+        {% endif %}
+
+        {% if ocp_gate_ack.analysis.acknowledged_gates %}
+        <h3>✅ Acknowledged Gates</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Gate</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for gate in ocp_gate_ack.analysis.acknowledged_gates %}
+                <tr>
+                    <td><code>{{ gate }}</code></td>
+                    <td class="added">✅ Acknowledged</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if ocp_gate_ack.analysis.unacknowledged_gates %}
+        <h3>❌ Unacknowledged Gates</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Gate</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for gate in ocp_gate_ack.analysis.unacknowledged_gates %}
+                <tr>
+                    <td><code>{{ gate }}</code></td>
+                    <td class="removed">❌ Not Acknowledged</td>
                 </tr>
                 {% endfor %}
             </tbody>

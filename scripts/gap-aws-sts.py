@@ -9,12 +9,14 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError, URLError
 
 # Add lib directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 
 from common import log_info, log_success, log_error, log_warning, check_command
-from openshift_releases import resolve_baseline_version, resolve_target_version
+from openshift_releases import resolve_baseline_version, resolve_target_version, extract_minor_version
 from reporters import generate_markdown_report, generate_html_report, generate_json_report
 
 
