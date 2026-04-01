@@ -139,16 +139,18 @@ main() {
     log_info "========================================="
     log_info "Baseline: $BASELINE"
     log_info "Target:   $TARGET"
-    log_info "Platforms: AWS STS, GCP WIF, Feature Gates"
+    log_info "Gap Analysis checks: AWS STS, GCP WIF, Feature Gates, OCP Gate Acknowledgments"
     log_info "Report Directory: $REPORT_DIR"
     log_info "========================================="
 
     local aws_result=0
     local gcp_result=0
     local feature_gates_result=0
+    local ocp_gate_ack_result=0
     local aws_output=""
     local gcp_output=""
     local feature_gates_output=""
+    local ocp_gate_ack_output=""
 
     # Set environment variable to skip individual reports (full report will be generated instead)
     export GAP_FULL_REPORT=1
@@ -201,14 +203,30 @@ main() {
         feature_gates_result=1
     fi
 
+    # Run OCP Gate Acknowledgment analysis
+    log_info ""
+    log_info "Running OCP Admin Gate Acknowledgment Analysis..."
+    ocp_gate_ack_output=$(python3 "${SCRIPT_DIR}/gap-ocp-gate-ack.py" \
+        --baseline "$BASELINE" \
+        --target "$TARGET" \
+        --report-dir "$REPORT_DIR" \
+        $VERBOSE_FLAG 2>&1) || {
+        log_error "OCP Gate Acknowledgment analysis failed to execute"
+        exit 1
+    }
+    echo "$ocp_gate_ack_output" >&2
+    if echo "$ocp_gate_ack_output" | grep -q "UPGRADE NOT READY\|Unacknowledged gates\|Acknowledgment file missing"; then
+        ocp_gate_ack_result=1
+    fi
+
     # Print summary
     log_info ""
     log_info "========================================="
     log_info "  Gap Analysis Complete!"
     log_info "========================================="
 
-    if [[ $aws_result -eq 0 ]] && [[ $gcp_result -eq 0 ]] && [[ $feature_gates_result -eq 0 ]]; then
-        log_success "No policy or feature gate differences found"
+    if [[ $aws_result -eq 0 ]] && [[ $gcp_result -eq 0 ]] && [[ $feature_gates_result -eq 0 ]] && [[ $ocp_gate_ack_result -eq 0 ]]; then
+        log_success "No policy, feature gate differences, or gate acknowledgment issues found"
     else
         if [[ $aws_result -eq 1 ]]; then
             log_info "AWS STS: Policy differences detected"
@@ -218,6 +236,9 @@ main() {
         fi
         if [[ $feature_gates_result -eq 1 ]]; then
             log_info "Feature Gates: Differences detected"
+        fi
+        if [[ $ocp_gate_ack_result -eq 1 ]]; then
+            log_info "OCP Gate Acknowledgments: Issues detected"
         fi
         log_info "Differences detected - review recommended"
     fi

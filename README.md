@@ -15,6 +15,7 @@ This framework helps platform teams identify IAM permission and feature gate cha
 | **AWS STS Policies** | IAM permission changes for AWS-based clusters | OSD AWS, ROSA Classic, ROSA HCP |
 | **GCP WIF Policies** | Workload Identity Federation changes for GCP clusters | OSD GCP |
 | **Feature Gates** | Feature gate additions, removals, and default enablement changes | All platforms |
+| **OCP Admin Gate Acks** | Validates admin gate acknowledgments for upgrade readiness | Managed clusters (OSD, ROSA) |
 
 ### Key Features
 
@@ -90,6 +91,7 @@ gap-analysis/
 │   ├── gap-aws-sts.py       # AWS STS policy analysis
 │   ├── gap-gcp-wif.py       # GCP WIF policy analysis
 │   ├── gap-feature-gates.py # Feature gate analysis
+│   ├── gap-ocp-gate-ack.py  # OCP admin gate acknowledgment analysis
 │   ├── gap-all.sh           # Run all analyses
 │   └── lib/                 # Shared libraries
 │
@@ -139,6 +141,7 @@ python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
 [INFO] Running AWS STS Policy Gap Analysis...
 [INFO] Running GCP WIF Policy Gap Analysis...
 [INFO] Running Feature Gates Gap Analysis...
+[INFO] Running OCP Admin Gate Acknowledgment Analysis...
 [SUCCESS] Combined report generated: ./reports/gap-analysis-full_*.md
 ```
 

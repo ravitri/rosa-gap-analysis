@@ -4,11 +4,12 @@ OpenShift Gap Analysis Framework for comparing cloud credential policies and fea
 
 ## What It Does
 
-Identifies changes between OpenShift versions in three areas:
+Identifies changes between OpenShift versions in four areas:
 
 1. **AWS STS Policies** - IAM permission changes for AWS clusters (OSD AWS, ROSA Classic, ROSA HCP)
 2. **GCP WIF Policies** - Workload Identity Federation changes for GCP clusters (OSD GCP)
 3. **Feature Gates** - Feature additions, removals, and default enablement changes
+4. **OCP Admin Gate Acknowledgments** - Validates upgrade readiness by checking required gate acknowledgments
 
 ## How It Works
 
@@ -72,6 +73,10 @@ fi
 **Feature Gates:**
 - `https://sippy.dptools.openshift.org/api/feature_gates?release={version}`
 - Queries Sippy API for feature gate data
+
+**OCP Admin Gate Acknowledgments:**
+- `https://github.com/openshift/cluster-version-operator` - Admin gate ConfigMaps
+- `https://github.com/openshift/managed-cluster-config` - Acknowledgment ConfigMaps
 
 ## Reports
 

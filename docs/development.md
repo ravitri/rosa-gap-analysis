@@ -17,12 +17,14 @@ scripts/
 ├── gap-aws-sts.py              # AWS STS analysis
 ├── gap-gcp-wif.py              # GCP WIF analysis
 ├── gap-feature-gates.py        # Feature gates analysis
+├── gap-ocp-gate-ack.py         # OCP admin gate acknowledgments
 ├── gap-all.sh                  # Orchestrator
 ├── generate-combined-report.py # Combined report
 ├── templates/                  # Jinja2 templates
 │   ├── aws-sts.{md,html}.j2
 │   ├── gcp-wif.{md,html}.j2
 │   ├── feature-gates.{md,html}.j2
+│   ├── ocp-gate-ack.{md,html}.j2
 │   └── full-gap.{md,html}.j2
 └── lib/
     ├── common.py               # Utilities
@@ -38,6 +40,7 @@ scripts/
 
 # Test specific versions
 python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
+python3 ./scripts/gap-ocp-gate-ack.py --baseline 4.21 --target 4.22
 
 # Verbose output
 python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22 --verbose

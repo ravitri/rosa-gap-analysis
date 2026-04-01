@@ -2,20 +2,21 @@
 name: full-gap-analysis
 description: >
   Comprehensive gap analysis between OpenShift versions covering AWS STS policies,
-  GCP WIF policies, and feature gates. Use when performing complete version upgrade
-  assessment for managed OpenShift (OSD, ROSA).
+  GCP WIF policies, feature gates, and OCP admin gate acknowledgments. Use when
+  performing complete version upgrade assessment for managed OpenShift (OSD, ROSA).
   Logs detected differences but always exits 0 on successful execution.
 compatibility:
   required_tools:
     - oc
     - jq
-    - yq or python3
+    - python3
+    - PyYAML
 ---
 
 # Full Gap Analysis
 
 Orchestrate comprehensive gap analysis across OpenShift versions.
-Automatically analyzes AWS STS policies, GCP WIF policies, and feature gates.
+Automatically analyzes AWS STS policies, GCP WIF policies, feature gates, and OCP admin gate acknowledgments.
 
 ## When to Use
 
@@ -23,8 +24,9 @@ Automatically analyzes AWS STS policies, GCP WIF policies, and feature gates.
 - Comparing platform variants (ROSA Classic vs HCP)
 - Cross-cloud comparison (OSD AWS vs GCP)
 - Complete upgrade impact assessment for IAM/WIF policies
+- Validating managed cluster upgrade readiness
 - Quarterly upgrade planning
-- CI/CD pipelines that need to detect policy changes
+- CI/CD pipelines that need to detect policy changes and validate upgrade prerequisites
 
 ## What This Analyzes
 
@@ -45,6 +47,12 @@ Automatically analyzes all of:
    - Feature gates removed
    - Gates newly enabled by default
    - Gates removed from default
+
+4. **OCP Admin Gate Acknowledgments**
+   - Admin gates requiring acknowledgment
+   - Missing acknowledgment files
+   - Unacknowledged gates that would block upgrades
+   - Upgrade readiness validation
 
 The script runs all analyses and reports if differences exist in any area.
 
@@ -94,17 +102,19 @@ The script:
 - Runs AWS STS policy analysis (Python)
 - Runs GCP WIF policy analysis (Python)
 - Runs feature gate analysis (Python)
-- Generates individual reports for each analysis (MD, HTML, JSON)
-- Generates combined report aggregating all analyses
+- Runs OCP admin gate acknowledgment analysis (Python)
+- Generates JSON reports for each analysis (used for combined report)
+- Generates combined report aggregating all analyses (MD, HTML, JSON)
 - Logs detected differences to stdout/stderr
 - Always exits 0 on successful execution (regardless of differences)
 - Only exits 1 on execution failures (missing tools, network errors, etc.)
 
 **Report Files Generated:**
-- `reports/gap-analysis-aws-sts_*.{md,html,json}`
-- `reports/gap-analysis-gcp-wif_*.{md,html,json}`
-- `reports/gap-analysis-feature-gates_*.{md,html,json}`
-- `reports/gap-analysis-full_*.{md,html,json}` (combined report)
+- `reports/gap-analysis-aws-sts_*.json` (individual JSON only)
+- `reports/gap-analysis-gcp-wif_*.json` (individual JSON only)
+- `reports/gap-analysis-feature-gates_*.json` (individual JSON only)
+- `reports/gap-analysis-ocp-gate-ack_*.json` (individual JSON only)
+- `reports/gap-analysis-full_*.{md,html,json}` (combined report with all analyses)
 
 **Use in CI/CD:**
 ```bash
@@ -159,7 +169,7 @@ The script outputs log messages for both platforms and always exits 0 on success
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Baseline: 4.21
 [INFO] Target: 4.22
-[INFO] Platforms: AWS STS, GCP WIF, Feature Gates
+[INFO] Gap Analysis checks: AWS STS, GCP WIF, Feature Gates, OCP Gate Acknowledgments
 
 [INFO] Running AWS STS Policy Gap Analysis...
 [SUCCESS] No AWS STS policy differences found
@@ -170,8 +180,11 @@ The script outputs log messages for both platforms and always exits 0 on success
 [INFO] Running Feature Gates Gap Analysis...
 [SUCCESS] No feature gate differences found between 4.21 and 4.22
 
+[INFO] Running OCP Admin Gate Acknowledgment Analysis...
+[SUCCESS] No admin gates in 4.21, upgrade to 4.22 requires no acknowledgments
+
 [INFO] Gap Analysis Complete!
-[SUCCESS] No policy or feature gate differences found
+[SUCCESS] No policy, feature gate differences, or gate acknowledgment issues found
 ```
 Exit code: `0` (successful execution, no differences)
 
@@ -180,7 +193,7 @@ Exit code: `0` (successful execution, no differences)
 [INFO] OpenShift Gap Analysis Suite
 [INFO] Baseline: 4.21
 [INFO] Target: 4.22
-[INFO] Platforms: AWS STS, GCP WIF, Feature Gates
+[INFO] Gap Analysis checks: AWS STS, GCP WIF, Feature Gates, OCP Gate Acknowledgments
 
 [INFO] Running AWS STS Policy Gap Analysis...
 [INFO] Policy differences detected: 3 added, 1 removed
@@ -192,6 +205,9 @@ Exit code: `0` (successful execution, no differences)
 [INFO] Feature gate differences detected:
 [INFO]   - New feature gates: 5
 [INFO]   - Newly enabled by default: 2
+
+[INFO] Running OCP Admin Gate Acknowledgment Analysis...
+[INFO] ✅ UPGRADE READY: All gates acknowledged for 4.21 → 4.22
 
 [INFO] Gap Analysis Complete!
 [INFO] AWS STS: Policy differences detected
@@ -211,6 +227,7 @@ Analyzes all of:
 - AWS STS IAM policy changes
 - GCP WIF policy changes
 - Feature gate changes
+- OCP admin gate acknowledgments
 
 Logs differences but always exits 0 on successful execution.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenShift release version utilities using Sippy API."""
+"""OpenShift release version utilities using release streams API."""
 
 import json
 import sys
@@ -10,78 +10,94 @@ from common import log_info, log_error
 
 
 SIPPY_API = "https://sippy.dptools.openshift.org/api/releases"
+RELEASE_STREAM_BASE = "https://amd64.ocp.releases.ci.openshift.org/api/v1/releasestream"
+DEV_PREVIEW_STREAM = "4-dev-preview"
+STABLE_STREAM = "4-stable"
 
 
-def fetch_sippy_releases():
-    """Fetch all releases from Sippy API."""
+def fetch_sippy_ga_dates():
+    """Fetch GA dates from Sippy API."""
     try:
         req = Request(SIPPY_API, headers={'User-Agent': 'gap-analysis-script'})
         with urlopen(req, timeout=10) as response:
             data = response.read()
-            return json.loads(data)
+            return json.loads(data).get('ga_dates', {})
     except (URLError, json.JSONDecodeError) as e:
-        log_error(f"Failed to fetch releases from Sippy API: {e}")
+        log_error(f"Failed to fetch GA dates from Sippy API: {e}")
         sys.exit(1)
+
+
+def get_latest_ga_version():
+    """Get the latest GA version from Sippy API."""
+    ga_dates = fetch_sippy_ga_dates()
+    if not ga_dates:
+        log_error("No GA versions found in Sippy API")
+        sys.exit(1)
+
+    # Sort versions and get the latest
+    versions = sorted(ga_dates.keys(), key=lambda v: list(map(int, v.split('.'))))
+    return versions[-1]
 
 
 def get_latest_stable_version():
-    """Get the latest stable OpenShift version."""
-    releases = fetch_sippy_releases()
-
-    # Filter for GA releases (no -rc, -ec, -nightly)
-    stable_releases = [
-        r for r in releases
-        if r.get('phase') == 'GA'
-        and '-rc' not in r['release']
-        and '-ec' not in r['release']
-        and 'nightly' not in r['release'].lower()
-    ]
-
-    if not stable_releases:
-        log_error("No stable releases found in Sippy API")
+    """Get the latest stable OpenShift version from stable stream."""
+    try:
+        url = f"{RELEASE_STREAM_BASE}/{STABLE_STREAM}/tags"
+        req = Request(url, headers={'User-Agent': 'gap-analysis-script'})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read())
+            tags = data.get('tags', [])
+            if not tags:
+                log_error(f"No tags found in {STABLE_STREAM} stream")
+                sys.exit(1)
+            # Tags are sorted by date, first is most recent
+            return tags[0]['name']
+    except (URLError, json.JSONDecodeError, KeyError) as e:
+        log_error(f"Failed to fetch latest stable version: {e}")
         sys.exit(1)
-
-    # Get the most recent stable (assumes sorted by release date)
-    latest = stable_releases[0]
-    return extract_minor_version(latest['release'])
 
 
 def get_latest_candidate_version():
-    """Get the latest candidate OpenShift version."""
-    releases = fetch_sippy_releases()
-
-    # Filter for candidate releases (-ec or -rc)
-    candidate_releases = [
-        r for r in releases
-        if '-ec' in r['release'] or '-rc' in r['release']
-    ]
-
-    if not candidate_releases:
-        log_error("No candidate releases found in Sippy API")
+    """Get the latest candidate OpenShift version from dev-preview stream."""
+    try:
+        url = f"{RELEASE_STREAM_BASE}/{DEV_PREVIEW_STREAM}/tags"
+        req = Request(url, headers={'User-Agent': 'gap-analysis-script'})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read())
+            tags = data.get('tags', [])
+            if not tags:
+                log_error(f"No tags found in {DEV_PREVIEW_STREAM} stream")
+                sys.exit(1)
+            # Tags are sorted by date, first is most recent
+            return tags[0]['name']
+    except (URLError, json.JSONDecodeError, KeyError) as e:
+        log_error(f"Failed to fetch latest candidate version: {e}")
         sys.exit(1)
-
-    # Get the most recent candidate
-    latest = candidate_releases[0]
-    return extract_minor_version(latest['release'])
 
 
 def get_latest_dev_nightly_version():
     """Get the latest dev nightly OpenShift version."""
-    releases = fetch_sippy_releases()
+    # Get the latest GA version
+    ga_version = get_latest_ga_version()
 
-    # Filter for nightly releases
-    nightly_releases = [
-        r for r in releases
-        if 'nightly' in r['release'].lower()
-    ]
+    # Calculate dev version (GA + 1)
+    parts = ga_version.split('.')
+    dev_minor = int(parts[1]) + 1
+    dev_version = f"{parts[0]}.{dev_minor}"
 
-    if not nightly_releases:
-        log_error("No nightly releases found in Sippy API")
+    try:
+        url = f"{RELEASE_STREAM_BASE}/{dev_version}.0-0.nightly/latest?rel=1"
+        req = Request(url, headers={'User-Agent': 'gap-analysis-script'})
+        with urlopen(req, timeout=10) as response:
+            data = json.loads(response.read())
+            nightly_name = data.get('name')
+            if not nightly_name:
+                log_error(f"No nightly version found for {dev_version}")
+                sys.exit(1)
+            return nightly_name
+    except (URLError, json.JSONDecodeError, KeyError) as e:
+        log_error(f"Failed to fetch latest nightly version: {e}")
         sys.exit(1)
-
-    # Get the most recent nightly
-    latest = nightly_releases[0]
-    return extract_minor_version(latest['release'])
 
 
 def extract_minor_version(version_string):

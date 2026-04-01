@@ -98,3 +98,48 @@
 
 {% endif %}
 {% endif %}
+
+{% if ocp_gate_ack %}
+#### OCP Admin Gate Acknowledgments
+
+**Summary:** {% if ocp_gate_ack.summary.upgrade_ready %}✅ UPGRADE READY{% else %}❌ UPGRADE NOT READY{% endif %} - {{ ocp_gate_ack.summary.gates_requiring_ack }} gates requiring acknowledgment
+
+{% if ocp_gate_ack.summary.gates_requiring_ack == 0 %}
+✅ No admin gates in baseline version, no acknowledgments required
+
+{% if ocp_gate_ack.summary.ack_file_missing %}
+⚠️ **WARNING:** Acknowledgment file not found for version **{{ ocp_gate_ack.target }}**
+- Expected file: `deploy/osd-cluster-acks/ocp/{{ ocp_gate_ack.target }}/admin-ack.yaml`
+- Note: No gates currently require acknowledgment, but the file should exist for this version.
+
+{% endif %}
+{% else %}
+{% if ocp_gate_ack.summary.ack_file_missing %}
+**❌ Acknowledgment File Missing:**
+- Required file: `deploy/osd-cluster-acks/ocp/{{ ocp_gate_ack.target }}/admin-ack.yaml`
+- Action Required: Create the acknowledgment file
+
+{% endif %}
+{% if ocp_gate_ack.analysis.acknowledged_gates %}
+**✅ Acknowledged Gates:**
+{% for gate in ocp_gate_ack.analysis.acknowledged_gates %}
+- ✅ `{{ gate }}`
+{% endfor %}
+
+{% endif %}
+{% if ocp_gate_ack.analysis.unacknowledged_gates %}
+**❌ Unacknowledged Gates:**
+{% for gate in ocp_gate_ack.analysis.unacknowledged_gates %}
+- ❌ `{{ gate }}`
+{% endfor %}
+
+{% endif %}
+{% if ocp_gate_ack.analysis.extra_acks %}
+**ℹ️ Extra Acknowledgments:**
+{% for ack in ocp_gate_ack.analysis.extra_acks %}
+- `{{ ack }}`
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% endif %}
