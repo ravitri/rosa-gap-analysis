@@ -26,7 +26,7 @@ See [Validation Checks](docs/validation-checks.md) for detailed information abou
 ### Key Features
 
 - 🚀 **Automated Analysis**: Scripts handle data extraction and comparison
-- 📊 **Multi-Format Reports**: Generate Markdown, HTML, and JSON reports automatically
+- 📊 **Multi-Format Reports**: Generate HTML and JSON reports automatically
 - 🔄 **Auto-Detection**: Automatically detect latest stable and candidate versions
 - 🤖 **AI-Powered**: Claude Code skills for intelligent analysis and recommendations
 - ✅ **CI/CD Ready**: Exit codes designed for pipeline integration
@@ -67,9 +67,6 @@ REPORT_DIR=/custom/reports ./scripts/gap-all.sh
 Reports are automatically generated in `./reports/` directory:
 
 ```bash
-# View Markdown report
-cat reports/gap-analysis-full_*.md
-
 # Open HTML report in browser
 firefox reports/gap-analysis-full_*.html
 
@@ -121,7 +118,7 @@ python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 [INFO] Baseline version: 4.21
 [INFO] Target version: 4.22
 [INFO] Policy differences detected: 3 added, 1 removed
-[SUCCESS] Reports generated: ./reports/gap-analysis-aws-sts_*.{md,html,json}
+[SUCCESS] Reports generated: ./reports/gap-analysis-aws-sts_*.{html,json}
 ```
 
 ### Feature Gates Analysis
@@ -134,7 +131,7 @@ python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
 [INFO] Feature gate differences detected:
 [INFO]   - New feature gates: 8
 [INFO]   - Newly enabled by default: 2
-[SUCCESS] Reports generated: ./reports/gap-analysis-feature-gates_*.{md,html,json}
+[SUCCESS] Reports generated: ./reports/gap-analysis-feature-gates_*.{html,json}
 ```
 
 ### Full Gap Analysis
@@ -149,7 +146,7 @@ python3 ./scripts/gap-feature-gates.py --baseline 4.21 --target 4.22
 [INFO] Running GCP WIF Policy Gap Analysis...
 [INFO] Running Feature Gates Gap Analysis...
 [INFO] Running OCP Admin Gate Acknowledgment Analysis...
-[SUCCESS] Combined report generated: ./reports/gap-analysis-full_*.md
+[SUCCESS] Combined report generated: ./reports/gap-analysis-full_*.html
 ```
 
 ### Analyze CI Failures

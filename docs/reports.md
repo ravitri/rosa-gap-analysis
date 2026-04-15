@@ -4,11 +4,10 @@ All gap analysis scripts automatically generate reports in multiple formats when
 
 ## Report Formats
 
-Each script execution generates three report files:
+Each script execution generates two report files:
 
-1. **Markdown (.md)** - Human-readable text format
-2. **HTML (.html)** - Rich formatted report for viewing in browsers
-3. **JSON (.json)** - Machine-readable data for automation
+1. **HTML (.html)** - Rich formatted report for viewing in browsers
+2. **JSON (.json)** - Machine-readable data for automation
 
 ## Report Naming Convention
 
@@ -20,15 +19,12 @@ gap-analysis-{type}_{baseline}_to_{target}_{timestamp}.{format}
 
 **Examples:**
 ```
-gap-analysis-aws-sts_4.20_to_4.21_20260325_153237.md
 gap-analysis-aws-sts_4.20_to_4.21_20260325_153237.html
 gap-analysis-aws-sts_4.20_to_4.21_20260325_153237.json
 
-gap-analysis-feature-gates_4.20_to_4.21_20260325_153237.md
 gap-analysis-feature-gates_4.20_to_4.21_20260325_153237.html
 gap-analysis-feature-gates_4.20_to_4.21_20260325_153237.json
 
-gap-analysis-full_4.20_to_4.21_20260325_153500.md
 gap-analysis-full_4.20_to_4.21_20260325_153500.html
 gap-analysis-full_4.20_to_4.21_20260325_153500.json
 ```
@@ -44,7 +40,6 @@ python3 scripts/gap-aws-sts.py --baseline 4.20 --target 4.21
 ```
 
 Generates:
-- `gap-analysis-aws-sts_4.20_to_4.21_YYYYMMDD_HHMMSS.md`
 - `gap-analysis-aws-sts_4.20_to_4.21_YYYYMMDD_HHMMSS.html`
 - `gap-analysis-aws-sts_4.20_to_4.21_YYYYMMDD_HHMMSS.json`
 
@@ -65,7 +60,6 @@ python3 scripts/gap-gcp-wif.py --baseline 4.20 --target 4.21
 ```
 
 Generates:
-- `gap-analysis-gcp-wif_4.20_to_4.21_YYYYMMDD_HHMMSS.md`
 - `gap-analysis-gcp-wif_4.20_to_4.21_YYYYMMDD_HHMMSS.html`
 - `gap-analysis-gcp-wif_4.20_to_4.21_YYYYMMDD_HHMMSS.json`
 
@@ -86,7 +80,6 @@ python3 scripts/gap-ocp-gate-ack.py --baseline 4.20 --target 4.21
 ```
 
 Generates:
-- `gap-analysis-ocp-gate-ack_4.20_to_4.21_YYYYMMDD_HHMMSS.md`
 - `gap-analysis-ocp-gate-ack_4.20_to_4.21_YYYYMMDD_HHMMSS.html`
 - `gap-analysis-ocp-gate-ack_4.20_to_4.21_YYYYMMDD_HHMMSS.json`
 
@@ -105,7 +98,6 @@ python3 scripts/gap-feature-gates.py --baseline 4.20 --target 4.21
 ```
 
 Generates:
-- `gap-analysis-feature-gates_4.20_to_4.21_YYYYMMDD_HHMMSS.md`
 - `gap-analysis-feature-gates_4.20_to_4.21_YYYYMMDD_HHMMSS.html`
 - `gap-analysis-feature-gates_4.20_to_4.21_YYYYMMDD_HHMMSS.json`
 
@@ -128,7 +120,6 @@ bash scripts/gap-all.sh --baseline 4.20 --target 4.21
 
 **Generates individual reports for each analysis PLUS a combined report:**
 
-- `gap-analysis-full_4.20_to_4.21_YYYYMMDD_HHMMSS.md`
 - `gap-analysis-full_4.20_to_4.21_YYYYMMDD_HHMMSS.html`
 - `gap-analysis-full_4.20_to_4.21_YYYYMMDD_HHMMSS.json`
 
@@ -149,18 +140,6 @@ bash scripts/gap-all.sh --baseline 4.20 --target 4.21
 4. Feature Gates (Check 6) - Always executed last
 
 ## Viewing Reports
-
-### Markdown Reports (.md)
-
-View in any text editor or markdown viewer:
-```bash
-cat gap-analysis-feature-gates_4.20_to_4.21_20260325_153237.md
-```
-
-Or use a markdown preview tool:
-```bash
-mdless gap-analysis-feature-gates_4.20_to_4.21_20260325_153237.md
-```
 
 ### HTML Reports (.html)
 
@@ -220,8 +199,6 @@ python3 /path/to/scripts/gap-aws-sts.py --baseline 4.20 --target 4.21
   artifacts:
     - name: gap-analysis-reports
       path: gap-analysis-*.html
-    - name: gap-analysis-reports
-      path: gap-analysis-*.md
     - name: gap-analysis-reports
       path: gap-analysis-*.json
 ```

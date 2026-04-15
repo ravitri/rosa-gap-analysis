@@ -147,7 +147,7 @@ The CI system:
 1. Builds this Containerfile as the build root (includes scripts)
 2. Scripts are pre-installed in `/gap-analysis/scripts/` and available in PATH
 3. Runs test commands (Python gap analysis scripts for AWS STS, GCP WIF, and Feature Gates)
-4. Scripts automatically generate reports in MD, HTML, and JSON formats
+4. Scripts automatically generate reports in HTML and JSON formats
 5. Scripts exit 0 on successful execution (regardless of policy or feature gate differences)
 6. Scripts only exit 1 on execution failures (missing tools, network errors, etc.)
 7. Reports can be saved to `${ARTIFACT_DIR}` for CI artifact collection
@@ -197,12 +197,11 @@ The container image has the following structure:
 │       ├── common.sh               # Bash utilities
 │       └── openshift-releases.sh   # Version resolution (Bash)
 ├── reports/                         # Default report directory (created at runtime)
-│   ├── gap-analysis-aws-sts_*.md
 │   ├── gap-analysis-aws-sts_*.html
 │   ├── gap-analysis-aws-sts_*.json
-│   ├── gap-analysis-gcp-wif_*.{md,html,json}
-│   ├── gap-analysis-feature-gates_*.{md,html,json}
-│   └── gap-analysis-full_*.{md,html,json}  # Combined report
+│   ├── gap-analysis-gcp-wif_*.{html,json}
+│   ├── gap-analysis-feature-gates_*.{html,json}
+│   └── gap-analysis-full_*.{html,json}  # Combined report
 ```
 
 **PATH Configuration**:
@@ -215,7 +214,7 @@ The container image has the following structure:
 **Report Generation**:
 - All scripts automatically generate reports in `./reports/` by default
 - Override with `--report-dir` flag or `REPORT_DIR` environment variable
-- Reports include MD (human-readable), HTML (web-viewable), and JSON (machine-readable) formats
+- Reports include HTML (web-viewable) and JSON (machine-readable) formats
 
 ## CI Organization
 
@@ -307,8 +306,8 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 # [INFO] Downloading job artifacts for 2041035894848229376...
 # [INFO] Downloading from GCS: gs://test-platform-results/logs/.../2041035894848229376/
 # [INFO] Finding gap-analysis reports in downloaded artifacts...
-# [SUCCESS] Copied: gap-analysis-full_4.21.9_to_4.22.0-ec.4_20260406_061719.json
 # [SUCCESS] Copied: gap-analysis-full_4.21.9_to_4.22.0-ec.4_20260406_061719.html
+# [SUCCESS] Copied: gap-analysis-full_4.21.9_to_4.22.0-ec.4_20260406_061719.json
 # [SUCCESS] Downloaded 2 gap-analysis report(s)
 # [SUCCESS] Found failed job with artifacts: 2041035894848229376
 # [INFO] Analyzing gap analysis report...
@@ -365,9 +364,8 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 
 All files are saved to `ci/artifacts/`:
 
+- **gap-analysis-full_*.html** - HTML report from failed job
 - **gap-analysis-full_*.json** - Full JSON report from failed job
-- **gap-analysis-full_*.html** - HTML report (if available)
-- **gap-analysis-full_*.md** - Markdown report (if available)
 - **failure-summary.md** - Generated validation failure summary
 
 ### Failure Summary Content

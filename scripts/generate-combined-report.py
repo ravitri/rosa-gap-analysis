@@ -12,7 +12,7 @@ from pathlib import Path
 # Add lib directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 
-from reporters import generate_markdown_report, generate_html_report, generate_json_report
+from reporters import generate_html_report, generate_json_report
 from common import log_info, log_success
 from openshift_releases import extract_minor_version
 
@@ -107,11 +107,6 @@ def main():
 
     # Generate combined reports
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    # Generate Markdown report
-    md_file = os.path.join(args.report_dir, f"gap-analysis-full_{args.baseline}_to_{args.target}_{timestamp}.md")
-    generate_markdown_report(report_data, md_file)
-    log_success(f"Combined Markdown report generated: {md_file}")
 
     # Generate HTML report
     html_file = os.path.join(args.report_dir, f"gap-analysis-full_{args.baseline}_to_{args.target}_{timestamp}.html")

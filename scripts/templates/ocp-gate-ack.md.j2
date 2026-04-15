@@ -18,11 +18,13 @@
 
 ### Statistics
 
-- **Gates Requiring Acknowledgment:** {{ summary.gates_requiring_ack }}
-- **Acknowledged Gates:** {{ summary.acknowledged }}
-- **Unacknowledged Gates:** {{ summary.unacknowledged }}
-- **Extra Acknowledgments:** {{ summary.extra_acks }}
-- **Acknowledgment File Status:** {% if summary.ack_file_missing %}❌ Missing{% else %}✅ Found{% endif %}
+| Metric | Value |
+|--------|-------|
+| Gates Requiring Acknowledgment | {{ summary.gates_requiring_ack }} |
+| Acknowledged Gates | {{ summary.acknowledged }} |
+| Unacknowledged Gates | {{ summary.unacknowledged }} |
+| Extra Acknowledgments | {{ summary.extra_acks }} |
+| Acknowledgment File Status | {% if summary.ack_file_missing %}❌ Missing{% else %}✅ Found{% endif %} |
 
 ---
 

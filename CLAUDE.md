@@ -54,7 +54,7 @@ Claude follows an impact-based approach in this repository:
 **Key Patterns:**
 - **Exit codes**: Exit 0 on successful execution even when differences found; exit 1 only on execution errors
 - **Version resolution**: CLI flags > env vars > auto-detect (Sippy API)
-- **Reports**: All scripts generate MD/HTML/JSON simultaneously using Jinja2 templates
+- **Reports**: All scripts generate HTML/JSON simultaneously using Jinja2 templates
 - **Validation**: 6 globally numbered checks; checks 1-5 can FAIL, check 6 (feature gates) is informational only
 
 ## Essential Commands
@@ -104,7 +104,7 @@ WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
 ## Critical Implementation Details
 
 **gap-all.sh orchestrator:**
-- Sets `GAP_FULL_REPORT=1` to skip individual MD/HTML (generates JSON only)
+- Sets `GAP_FULL_REPORT=1` to skip individual HTML (generates JSON only)
 - Feature gates runs last, aggregates reports via `generate-combined-report.py`, exits 1 on failures
 
 **Version resolution (openshift_releases.py/sh):**
@@ -119,7 +119,7 @@ WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
 - Checks acknowledgment files (config.yaml, cloudcredential.yaml) for required structure
 
 **Report generation (reporters.py):**
-- Templates in `scripts/templates/*.{md,html}.j2`
+- Templates in `scripts/templates/*.html.j2`
 - Timestamped filenames: `gap-analysis-{type}_{baseline}_to_{target}_{timestamp}.{ext}`
 - Combined report aggregates all individual JSON reports
 
@@ -128,7 +128,7 @@ WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
 sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 from common import log_info, log_success, log_error
 from openshift_releases import resolve_baseline_version, resolve_target_version
-from reporters import generate_markdown_report, generate_html_report, generate_json_report
+from reporters import generate_html_report, generate_json_report
 ```
 
 **Logging convention:**
@@ -178,13 +178,13 @@ from reporters import generate_markdown_report, generate_html_report, generate_j
 
 **Adding new analysis script:**
 1. Create `scripts/gap-new-analysis.py` with standard import pattern
-2. Create templates: `scripts/templates/new-analysis.{md,html}.j2`
+2. Create template: `scripts/templates/new-analysis.html.j2`
 3. Add to `scripts/gap-all.sh` orchestrator (before feature gates)
 4. Update `ci/Containerfile` if new dependencies needed
 5. Test with explicit versions before using auto-detect
 
 **Modifying templates:**
-- Edit Jinja2 files in `scripts/templates/`
+- Edit Jinja2 HTML files in `scripts/templates/`
 - Common variables: `type`, `baseline`, `target`, `timestamp`, `comparison`, `validation`
 - Test by running corresponding script
 

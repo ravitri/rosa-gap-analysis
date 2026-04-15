@@ -49,7 +49,7 @@ Changes that affect **multiple areas** or **external interfaces**:
 
 ### Changes Required:
 1. Create scripts/gap-network.py
-2. Create templates (network.md.j2, network.html.j2)
+2. Create template (network.html.j2)
 3. Update gap-all.sh (add before feature gates)
 4. Update generate-combined-report.py
 5. Create skills/network-gap/SKILL.md
@@ -148,9 +148,8 @@ This is a high-impact change affecting multiple areas.
 
 ### Files to Create:
 1. scripts/gap-network.py (validation logic)
-2. scripts/templates/network.md.j2
-3. scripts/templates/network.html.j2
-4. skills/network-gap/SKILL.md
+2. scripts/templates/network.html.j2
+3. skills/network-gap/SKILL.md
 
 ### Files to Update:
 1. scripts/gap-all.sh (add execution step)

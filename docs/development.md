@@ -21,11 +21,11 @@ scripts/
 ├── gap-all.sh                  # Orchestrator
 ├── generate-combined-report.py # Combined report
 ├── templates/                  # Jinja2 templates
-│   ├── aws-sts.{md,html}.j2
-│   ├── gcp-wif.{md,html}.j2
-│   ├── feature-gates.{md,html}.j2
-│   ├── ocp-gate-ack.{md,html}.j2
-│   └── full-gap.{md,html}.j2
+│   ├── aws-sts.html.j2
+│   ├── gcp-wif.html.j2
+│   ├── feature-gates.html.j2
+│   ├── ocp-gate-ack.html.j2
+│   └── full-gap.html.j2
 └── lib/
     ├── common.py               # Utilities
     ├── openshift_releases.py   # Version resolution
@@ -54,15 +54,12 @@ REPORT_DIR=/tmp/test ./scripts/gap-all.sh
 Edit Jinja2 templates in `scripts/templates/`:
 
 ```bash
-# Edit Markdown template
-vim scripts/templates/aws-sts.md.j2
-
 # Edit HTML template
 vim scripts/templates/aws-sts.html.j2
 
 # Test changes
 python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
-cat reports/gap-analysis-aws-sts_*.md
+firefox reports/gap-analysis-aws-sts_*.html
 ```
 
 Template variables available:
@@ -121,14 +118,13 @@ sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 
 from common import log_info
 from openshift_releases import resolve_baseline_version, resolve_target_version
-from reporters import generate_markdown_report, generate_html_report
+from reporters import generate_html_report, generate_json_report
 
 # Your logic here
 ```
 
-2. Create templates:
+2. Create template:
 ```bash
-scripts/templates/new-analysis.md.j2
 scripts/templates/new-analysis.html.j2
 ```
 
