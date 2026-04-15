@@ -1,9 +1,9 @@
 ---
 name: analyze-prow-failure
 description: >
-  Analyze latest failed Prow CI job for gap-analysis validation failures.
+  Analyze most recent Prow CI job for gap-analysis validation failures.
   Downloads artifacts from GCS, parses JSON reports, generates failure summary.
-  Checks top 5 recent jobs automatically. Supports specific job ID analysis.
+  Checks most recent job automatically. Supports specific job ID analysis.
 compatibility:
   required_tools:
     - oc
@@ -13,19 +13,19 @@ compatibility:
 
 # Analyze Prow Failure
 
-Analyzes failed Prow CI jobs for gap-analysis validation failures.
+Analyzes most recent Prow CI job for gap-analysis validation failures.
 
 ## When to Use
 
-- Latest Prow job failed and you need to understand what's missing
+- Most recent Prow job failed and you need to understand what's missing
 - Preparing to create PR for new OCP version credentials
 - Want failure summary before generating fixes
 
 ## What This Analyzes
 
-**Checks latest failed job:**
-- Queries Prow deck API for recent failures (top 5 jobs)
-- Downloads gap-analysis reports from GCS
+**Checks most recent job:**
+- Queries Prow deck API for most recent job status
+- Downloads gap-analysis reports from GCS if job failed
 - Copies prowjob.json for job metadata (used for PR URL generation)
 - Parses validation failures (CHECK #1-5)
 - Generates failure summary with file content needed
@@ -73,14 +73,14 @@ cat ~/prow-analysis/failure-summary.md
 
 **Graceful exit (no failures):**
 ```
-[SUCCESS] ✅ No failed jobs in the last 5 executions
-[INFO] All recent jobs are successful. No analysis needed.
+[SUCCESS] ✅ Most recent job is successful or pending
+[INFO] Most recent job is success. No analysis needed.
 ```
 
 ## Options
 
 ```bash
-# Analyze latest failure (checks top 5)
+# Analyze most recent job
 ./ci/analyze-prow-failure.sh
 
 # Keep temp directory for review
@@ -95,7 +95,10 @@ cat ~/prow-analysis/failure-summary.md
 
 ## Integration with Other Skills
 
-**Followed by:**
+**Automated alternative:**
+- `prow-autofix` - One-step workflow combining analyze + fix + PR (recommended for automation)
+
+**Followed by (manual workflow):**
 - `fix-prow-failure` - Generates fixes and creates PR
 
 **Use after:**

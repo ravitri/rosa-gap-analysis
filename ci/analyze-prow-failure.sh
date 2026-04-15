@@ -52,27 +52,26 @@ Usage: $(basename "$0") [OPTIONS]
 Analyze latest failed Prow job and identify validation failures.
 
 This script:
-  - Checks top 5 recent jobs for failures
+  - Checks most recent job for failures
   - Downloads gap-analysis artifacts from GCS using gcloud storage
   - Parses validation failures (CHECK #1-5)
   - Generates failure summary
 
 BEHAVIOR:
-  - Checks only the 5 most recent jobs for failures
-  - If all 5 are successful: exits gracefully (no analysis needed)
-  - If failed job found: downloads entire job directory and extracts reports
-  - If failed job has no artifacts: tries next failed job
-  - Use --job-id to analyze a specific job
+  - Checks only the most recent job
+  - If most recent job is successful: exits gracefully (no analysis needed)
+  - If most recent job failed: downloads entire job directory and extracts reports
+  - Use --job-id to analyze a specific older job manually
 
 OPTIONS:
     -j, --job-name NAME    Job name to analyze (default: ${DEFAULT_JOB_NAME})
-    -i, --job-id ID        Specific job ID to analyze (skips top-5 check)
+    -i, --job-id ID        Specific job ID to analyze (for older failed jobs)
     -w, --work-dir DIR     Work directory for artifacts (default: /tmp/gap-analysis-XXXXXX)
     -k, --keep-work-dir    Keep temporary work directory after completion
     -h, --help            Display this help message
 
 EXAMPLES:
-    # Analyze latest failed job (checks top 5) - uses temp directory
+    # Analyze most recent job - uses temp directory
     $(basename "$0")
 
     # Analyze and keep work directory for later review
@@ -356,57 +355,54 @@ main() {
             exit 1
         fi
     else
-        # Find latest failed job in top 5 jobs
-        log_info "Finding latest failed job for: ${job_name} (checking top 5 jobs)..."
+        # Check most recent job
+        log_info "Checking most recent job for: ${job_name}..."
 
-        # Get top 5 jobs
+        # Get most recent job
         local executions
-        executions=$(get_job_executions "${job_name}" 5)
+        executions=$(get_job_executions "${job_name}" 1)
 
-        # Check if any failed
-        local failed_jobs
-        failed_jobs=$(echo "${executions}" | jq -r '.items[] | select(.job_status == "failure" or .job_status == "error") | .id')
+        # Check job status
+        local job_status
+        job_status=$(echo "${executions}" | jq -r '.items[0].job_status')
+        local candidate_job_id
+        candidate_job_id=$(echo "${executions}" | jq -r '.items[0].id')
 
-        if [ -z "${failed_jobs}" ]; then
-            log_success "✅ No failed jobs in the last 5 executions"
+        log_info "Most recent job status: ${job_status} (ID: ${candidate_job_id})"
+
+        if [ "${job_status}" != "failure" ] && [ "${job_status}" != "error" ]; then
+            log_success "✅ Most recent job is successful or pending"
             log_info ""
-            log_info "Recent job statuses:"
+            log_info "Most recent job status:"
             echo "${executions}" | jq -r '.items[] | "  - Job \(.id): \(.job_status)"'
             log_info ""
-            log_info "All recent jobs are successful or pending. No analysis needed."
-            log_info "To analyze a specific failed job, use: --job-id <JOB_ID>"
+            log_info "Most recent job is ${job_status}. No analysis needed."
+            log_info "To analyze a specific older failed job, use: --job-id <JOB_ID>"
             log_info "Find job IDs at: https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/${job_name}"
             exit 0
         fi
 
-        # Try each failed job until we find one with artifacts
-        while IFS= read -r candidate_job_id; do
-            log_info "Trying failed job: ${candidate_job_id}"
+        # Most recent job failed - try to download artifacts
+        log_info "Most recent job failed. Downloading artifacts for: ${candidate_job_id}"
 
-            # Get job metadata
-            local job_metadata
-            job_metadata=$(get_job_metadata "${candidate_job_id}")
+        # Get job metadata
+        local job_metadata
+        job_metadata=$(get_job_metadata "${candidate_job_id}")
 
-            if [ -n "${job_metadata}" ]; then
-                echo "${job_metadata}" | jq .
-            fi
+        if [ -n "${job_metadata}" ]; then
+            echo "${job_metadata}" | jq .
+        fi
 
-            # Try to download artifacts
-            if download_job_artifacts "${job_name}" "${candidate_job_id}" "${work_dir}"; then
-                job_id="${candidate_job_id}"
-                artifacts_downloaded=true
-                log_success "Found failed job with artifacts: ${job_id}"
-                break
-            else
-                log_warn "Job ${candidate_job_id} has no gap-analysis artifacts, trying next..."
-            fi
-        done <<< "${failed_jobs}"
-
-        if [ "${artifacts_downloaded}" = false ]; then
-            log_error "No failed jobs with gap-analysis artifacts found in top 5 executions"
-            log_error "Recent failed jobs may have failed before gap-analysis ran"
+        # Try to download artifacts
+        if download_job_artifacts "${job_name}" "${candidate_job_id}" "${work_dir}"; then
+            job_id="${candidate_job_id}"
+            artifacts_downloaded=true
+            log_success "Found failed job with artifacts: ${job_id}"
+        else
+            log_error "Most recent job (${candidate_job_id}) has no gap-analysis artifacts"
+            log_error "Job may have failed before gap-analysis ran"
             log_error ""
-            log_error "To analyze a specific failed job with artifacts:"
+            log_error "To analyze a specific older failed job with artifacts:"
             log_error "  1. Find job ID at: https://prow.ci.openshift.org/?job=${job_name}"
             log_error "  2. Run: $(basename "$0") --job-id <JOB_ID>"
             exit 1

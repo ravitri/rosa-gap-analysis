@@ -114,6 +114,11 @@ cat ~/prow-analysis/failure-summary.md
 - PR description lists ONLY gap-analysis files (AWS STS: 7, GCP WIF: 1, Acks: 4)
 - Make-generated files (ACM policies, hack templates) are committed but not highlighted in PR body
 
+**PR replacement:**
+- If a PR already exists for the same branch (`ocp-X.XX-gap-analysis-update`), it will be automatically closed
+- A new PR is created immediately with the updated changes
+- Closure is logged with comment: "Closing this PR to create a new one with updated gap-analysis changes"
+
 ## Options
 
 ```bash
@@ -132,18 +137,31 @@ cat ~/prow-analysis/failure-summary.md
 
 ## Configuration
 
-Set via `.github-pr-config` or environment variables:
-
+**Required:**
 ```bash
-TARGET_REPO="openshift/managed-cluster-config"
-TEST_REPO="your-user/test-repo"
-FORK_REPO="bot-user/managed-cluster-config"
-GH_TOKEN="ghp_yourToken"  # Required for PR creation
+export GH_TOKEN="ghp_yourToken"  # Required for PR creation
+```
+
+**Standard defaults** (no setup needed):
+- All configured in `ci/pr-defaults.sh`
+- `TARGET_REPO`, `FORK_REPO`, `REVIEWERS`, `LABELS` already set
+
+**Override if needed** (see `ci/pr-defaults.sh` for available variables):
+```bash
+# Via environment variables
+export FORK_REPO="different-user/managed-cluster-config"
+export TEST_REPO="your-user/test-repo"
+
+# Or via command-line flags
+./ci/fix-prow-failure.sh --fork-repo "..." --test-repo "..."
 ```
 
 ## Integration with Other Skills
 
-**Use after:**
+**Automated alternative:**
+- `prow-autofix` - One-step workflow combining analyze + fix + PR (recommended for automation)
+
+**Use after (manual workflow):**
 - `analyze-prow-failure` - Provides work directory with failure reports
 
 **Creates:**

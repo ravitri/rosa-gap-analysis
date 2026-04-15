@@ -6,29 +6,119 @@ Quick testing guide for the analyze/fix workflow.
 
 - `oc` - Authenticated to OpenShift CI cluster
 - `jq`, `gcloud`, `gh` - Standard tooling
-- `GH_TOKEN` - GitHub Personal Access Token
-- Fork of `managed-cluster-config` (for PR testing)
+- Fork of `managed-cluster-config` (rosa-gap-analysis-bot/managed-cluster-config)
 
-## Work Directory Setup
-
-**Recommended (temp directory):**
+**Required setup (GH_TOKEN must be set):**
 ```bash
+# Set GitHub Personal Access Token for rosa-gap-analysis-bot (REQUIRED)
+export GH_TOKEN="ghp_yourToken"
+```
+
+**Important:** The script validates that `GH_TOKEN` (or `GITHUB_TOKEN`) is set and will fail early if missing.
+
+**That's it!** All other configuration is standardized in `ci/pr-defaults.sh` - no additional setup required.
+
+**Optional overrides** via environment variables or command-line flags (see `ci/pr-defaults.sh` for available variables).
+
+## Workflows
+
+Choose the appropriate workflow based on your testing needs:
+
+### Automated Workflow (Recommended for Testing)
+
+**One-step command:**
+```bash
+export GH_TOKEN="ghp_yourToken"  # REQUIRED
+./ci/prow-autofix.sh
+```
+
+This automatically:
+1. Analyzes latest failed job
+2. Generates fix files
+3. Creates PR
+4. Cleans up temp directory
+
+**When to use:** Automated testing, CI/CD integration, trusted workflow
+
+**Options:**
+```bash
+# Test mode (PR to test repo)
+export TEST_REPO="your-user/test-managed-cluster-config"
+./ci/prow-autofix.sh --test-mode
+
+# Dry run (preview without PR, preserves work dir)
+./ci/prow-autofix.sh --dry-run
+
+# Specific job
+./ci/prow-autofix.sh --job-id 2041035894848229376
+```
+
+### Manual Workflow (For Review/Debugging)
+
+**When to use:** Need to review failure summary before PR, debugging, investigation
+
+**Two-step with temp directory:**
+```bash
+export GH_TOKEN="ghp_yourToken"  # REQUIRED for step 2
 WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
   ./ci/fix-prow-failure.sh --work-dir "$WORK_DIR" --create-pr
 ```
 
-**For testing (persistent directory):**
+**Two-step with persistent directory:**
 ```bash
+export GH_TOKEN="ghp_yourToken"  # REQUIRED for step 2
 ./ci/analyze-prow-failure.sh --work-dir ~/test-work
-./ci/fix-prow-failure.sh --work-dir ~/test-work
+# Review ~/test-work/failure-summary.md
+./ci/fix-prow-failure.sh --work-dir ~/test-work --create-pr
 ```
 
 ## Core Test Cases
 
-### Test 1: Analyze Latest Failure
+### Test 1: Trigger Prow Job (Manual)
 
 ```bash
-# Check top 5 recent jobs for failures
+# Trigger default nightly job and monitor
+./ci/trigger-prow-job.sh --wait
+```
+
+**Expected:** Triggers job, polls status every 30s, displays final result.
+
+**Validates:** Job triggering workflow, Gangway API integration.
+
+### Test 2: Automated Fix Workflow (One-Step)
+
+```bash
+export GH_TOKEN="ghp_your_token"
+export TEST_REPO="your-user/test-managed-cluster-config"
+
+# One-step automated workflow
+./ci/prow-autofix.sh --test-mode
+```
+
+**Expected:** Analyzes latest failure, generates fixes, validates files, creates PR, auto-cleans temp directory.
+
+**Validates:** Complete automation pipeline, standardized PR configuration.
+
+### Test 3: Automated Dry Run
+
+```bash
+# Preview without creating PR
+./ci/prow-autofix.sh --dry-run
+```
+
+**Expected:** 
+- Analyzes latest failure
+- Generates and validates files
+- Skips PR creation
+- Preserves work directory (not cleaned up, for inspection)
+- Outputs work directory path for manual review
+
+**Validates:** Generation and validation logic without PR side effects.
+
+### Test 4: Manual Workflow - Analyze Only
+
+```bash
+# Check most recent job
 ./ci/analyze-prow-failure.sh --work-dir ~/test-work
 
 # Review results
@@ -36,48 +126,48 @@ cat ~/test-work/failure-summary.md
 ls ~/test-work/gap-analysis-full_*.json
 ```
 
-**Expected:** Downloads artifacts, generates failure summary.
+**Expected:** Downloads artifacts from latest failed job, generates failure summary.
 
-### Test 2: Generate and Validate Fixes
+**Validates:** Prow deck API integration, artifact download, failure parsing.
+
+### Test 5: Manual Workflow - Generate and Validate
 
 ```bash
-# Generate fix files
+# Generate fix files (requires prior analyze step)
 ./ci/fix-prow-failure.sh --work-dir ~/test-work
 
 # Review generated files
 tree ~/test-work/managed-cluster-config/
 ```
 
-**Expected:** Creates AWS STS policies, GCP WIF templates, ack files. Validates all.
+**Expected:** Creates AWS STS policies, GCP WIF templates, ack files. Validates JSON/YAML syntax and WIF template constraints.
 
-### Test 3: Create Test PR
+**Validates:** File generation logic, WIF validation (service account ID ≤25 chars, role ID ≤50 chars).
+
+### Test 6: Manual Workflow - Create PR
 
 ```bash
-# Set up test configuration
 export GH_TOKEN="ghp_your_token"
+export TEST_REPO="your-user/test-managed-cluster-config"
 
 # Create PR to test repository
 ./ci/fix-prow-failure.sh --work-dir ~/test-work --create-pr --test-mode
 ```
 
-**Expected:** PR created with template-based description, URLs, permission changes.
+**Expected:** PR created with template-based description, Prow job URL, HTML report URL, per-file permission changes.
 
-### Test 4: Back-to-Back Workflow
+**Validates:** PR template, permission change extraction, file counting, duplicate PR detection.
 
-```bash
-# Full workflow: analyze and create PR in one command
-WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
-  ./ci/fix-prow-failure.sh --work-dir "$WORK_DIR" --create-pr --test-mode
-```
-
-**Expected:** Temp directory auto-cleaned after successful PR.
-
-### Test 5: Specific Job Analysis
+### Test 7: Specific Job Analysis
 
 ```bash
 # Analyze specific failed job by ID
 ./ci/analyze-prow-failure.sh --job-id 2041035894848229376 --work-dir ~/test-work
 ```
+
+**Expected:** Downloads artifacts for specified job, bypasses top-5 check.
+
+**Validates:** Direct job ID analysis (useful for older failures).
 
 ## Validation Checks
 
@@ -100,16 +190,39 @@ ls ~/test-work/ && echo "✓ Preserved for review"
 ## Common Issues
 
 **No failures found:**
-- All top 5 jobs are successful → expected graceful exit
-- Use `--job-id` to analyze older failed job
+- Most recent job is successful → expected graceful exit
+- Use `--job-id` to analyze specific older failed job
 
 **GH_TOKEN not set:**
+```
+ERROR: GitHub Personal Access Token (PAT) is required!
+```
+Solution:
 ```bash
 export GH_TOKEN="ghp_yourTokenHere"
 ```
+The script validates this early and will fail immediately if not set.
 
-**Fork not configured:**
-- Update `FORK_REPO` in configuration or use `--fork-repo` flag
+**Override standard configuration (if needed):**
+```bash
+# All defaults work out of the box. Override only if needed.
+# See ci/pr-defaults.sh for available variables.
+
+# Via environment variables
+export FORK_REPO="different-user/managed-cluster-config"
+
+# Via command-line flags
+./ci/fix-prow-failure.sh --fork-repo "..."
+```
+
+**Test repository for --test-mode:**
+```bash
+# Via environment variable (preferred)
+export TEST_REPO="your-user/test-managed-cluster-config"
+
+# OR via flag
+./ci/fix-prow-failure.sh --test-mode --test-repo "your-user/test-repo"
+```
 
 ## Cleanup
 
@@ -120,3 +233,11 @@ rm -rf ~/test-work
 # Check for orphaned temp directories
 ls /tmp/gap-analysis-* 2>/dev/null
 ```
+
+## See Also
+
+- [CI README](README.md) - Complete documentation for all CI workflows
+- [Quick Start](README.md#quick-start) - Three main workflow options
+- [Workflow Comparison](README.md#workflow-comparison) - When to use automated vs manual
+- [Configuration](README.md#configuration) - Required GH_TOKEN and optional overrides
+- [PR Defaults](pr-defaults.sh) - Standard configuration values
