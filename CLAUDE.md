@@ -76,14 +76,13 @@ python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
 podman build -f ci/Containerfile -t gap-analysis:dev .
 podman run --rm gap-analysis:dev gap-all.sh --baseline 4.21 --target 4.22
 
+# Automated Prow failure fix (recommended)
+export GH_TOKEN="..." && ./ci/prow-autofix.sh
+
 # Manual Prow job trigger
 ./ci/trigger-prow-job.sh -w
 
-# Analyze failure and create PR (back-to-back workflow)
-WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
-  ./ci/fix-prow-failure.sh --work-dir "$WORK_DIR" --create-pr
-
-# Manual review workflow with persistent directory
+# Manual review workflow
 ./ci/analyze-prow-failure.sh --work-dir ~/prow-analysis
 ./ci/fix-prow-failure.sh --work-dir ~/prow-analysis --create-pr
 ```
@@ -150,20 +149,32 @@ from reporters import generate_html_report, generate_json_report
 - Scripts execute directly (no repo clone needed)
 - Reports saved to `${ARTIFACT_DIR}` if specified via `REPORT_DIR` env var
 
+**Automated fix (ci/prow-autofix.sh):**
+- One-step: analyze latest FAILED Prow job → generate fixes → create PR
+- Auto-creates temp directory, auto-cleanup after PR creation
+- Requires only `GH_TOKEN` environment variable
+- Options: `--test-mode`, `--dry-run`, `--job-id`, `--verbose`
+- Recommended for CI/CD and automation workflows
+
+**Configuration (ci/pr-defaults.sh):**
+- Standardized defaults: `TARGET_REPO`, `FORK_REPO`, `LABELS`, `REVIEWERS`, `GITHUB_USERNAME`, `GIT_USER_NAME`, `GIT_USER_EMAIL`
+- Optional overrides via environment variables or command-line flags
+- Required: `GH_TOKEN` for GitHub API access
+
 **Manual trigger (ci/trigger-prow-job.sh):**
 - Requires auth to OpenShift CI cluster
 - Uses Gangway API for triggering jobs (write operations)
 - `-w` flag polls for completion via Prow deck API
 
-**Failure analyzer (ci/analyze-prow-failure.sh):**
-- Queries Prow deck API for latest FAILED job, downloads artifacts from GCS
-- Checks 5 most recent jobs; exits gracefully if all successful
+**Manual analyzer (ci/analyze-prow-failure.sh):**
+- Checks most recent Prow job; downloads artifacts from GCS if failed
+- Exits gracefully if most recent job is successful
 - Parses JSON report → extracts validation failures (CHECK #1-5) → generates fix content
 - Work directory: `/tmp/gap-analysis-*` (temp) or `--work-dir` (persistent)
 - Outputs failure-summary.md with missing files, permission changes, exact fix content
-- Libraries: prow-api.sh, failure-parser.sh, generate-fixes.py, validate-wif-template.sh
+- Use `--job-id` to analyze specific older failed jobs
 
-**PR creator (ci/fix-prow-failure.sh):**
+**Manual PR creator (ci/fix-prow-failure.sh):**
 - Generates files → validates (JSON, YAML, WIF via `validate-wif-template.sh`) → creates PR
 - WIF validation: service account ID (max 25 chars), role ID (max 50 chars), format checks; requires `yq`
 - Work directory: requires `--work-dir`; auto-cleanup for temp dirs, preserves user-specified paths
@@ -172,7 +183,7 @@ from reporters import generate_html_report, generate_json_report
 - Conditional OCP acks: skips config.yaml if no gates found
 - File staging: commits ALL files (gap-analysis + make-generated), PR description lists only gap-analysis files
 - Workflow: clone fork → create branch `ocp-X.XX-gap-analysis-update` → generate → make → commit → PR
-- Prevents duplicate PRs by checking existing branch
+- PR replacement: closes existing PR for same branch and creates new one with updated changes
 
 ## Development
 

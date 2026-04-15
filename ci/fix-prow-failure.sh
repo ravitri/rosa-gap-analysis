@@ -27,18 +27,16 @@ DRY_RUN=false
 SKIP_VALIDATION=false
 CLEANUP_WORK_DIR=false  # Set to true if temp dir should be cleaned up
 
-# Repository configuration (from config file or flags)
-TARGET_REPO="${TARGET_REPO:-openshift/managed-cluster-config}"
+# Repository configuration (loaded from ci/pr-defaults.sh)
+TARGET_REPO="${TARGET_REPO:-}"
 TEST_REPO="${TEST_REPO:-}"
 FORK_REPO="${FORK_REPO:-}"
 USE_TEST_MODE=false
 
-# PR configuration
-REVIEWERS=""
-LABELS="area/credentials"
-GITHUB_USERNAME="${GITHUB_USERNAME:-}"  # Optional: validate gh auth username
-GIT_USER_NAME="${GIT_USER_NAME:-Gap Analysis Bot}"
-GIT_USER_EMAIL="${GIT_USER_EMAIL:-gap-bot@redhat.com}"
+# PR configuration (loaded from ci/pr-defaults.sh)
+GITHUB_USERNAME="${GITHUB_USERNAME:-}"  # Required for PR creation
+GIT_USER_NAME="${GIT_USER_NAME:-}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"
 
 # Log functions
 log_info() {
@@ -95,36 +93,48 @@ PR CREATION:
     --test-repo REPO      Test repository (owner/repo, for --test-mode)
     --target-repo REPO    Target repository (owner/repo, for production)
     --fork-repo REPO      Fork repository (owner/repo, required for PR)
-    --reviewers LIST      Comma-separated reviewers
-    --labels LIST         Comma-separated labels (default: area/credentials)
 
 OPTIONS:
     --dry-run             Preview changes without creating files/PR
     -h, --help            Display this help message
 
-CONFIGURATION FILE:
-    Edit ${PROJECT_ROOT}/.github-pr-config with your bot settings:
+CONFIGURATION:
+    All standard defaults in ci/pr-defaults.sh (committed, no setup required):
+      TARGET_REPO="openshift/managed-cluster-config"
+      FORK_REPO="rosa-gap-analysis-bot/managed-cluster-config"
+      GITHUB_USERNAME="rosa-gap-analysis-bot"
+      GIT_USER_NAME="ROSA Gap Analysis Bot"
+      GIT_USER_EMAIL="rosa-gap-analysis-bot@redhat.com"
 
-    TARGET_REPO="openshift/managed-cluster-config"  # Production upstream
-    TEST_REPO="your-user/test-repo"                 # Test upstream
-    FORK_REPO="bot-user/managed-cluster-config"     # Bot's fork
-    REVIEWERS="reviewer1,reviewer2"
-    LABELS="area/credentials"
-    GITHUB_USERNAME="bot-user"        # Optional: validate gh auth user
-    GIT_USER_NAME="Gap Analysis Bot"  # Bot identity for commits
-    GIT_USER_EMAIL="gap-bot@redhat.com"
+    Optional overrides (only if needed):
+      # See ci/pr-defaults.sh for full list of available variables
 
-GITHUB AUTHENTICATION:
-    Set GitHub Personal Access Token (PAT) as environment variable:
+      # Via environment variables
+      export FORK_REPO="different-user/managed-cluster-config"
+
+      # Via command-line flags
+      --fork-repo "different-user/managed-cluster-config"
+
+    TEST_REPO (only needed for --test-mode):
+      export TEST_REPO="your-user/test-repo"
+      # OR: --test-repo "your-user/test-repo"
+
+GITHUB AUTHENTICATION (REQUIRED):
+    Set GitHub Personal Access Token (PAT) as environment variable before running:
       export GH_TOKEN="ghp_yourPersonalAccessTokenHere"
 
-    The script will automatically use this token for authentication.
-    DO NOT commit the token to the repository.
+    Or use GITHUB_TOKEN:
+      export GITHUB_TOKEN="ghp_yourPersonalAccessTokenHere"
 
     PAT Requirements:
+      - REQUIRED: Must be set before running the script
       - Scopes: repo, read:org
+      - Must belong to rosa-gap-analysis-bot (or custom GITHUB_USERNAME)
       - User must have write access to FORK_REPO
-      - User must be able to create PRs to TEST_REPO and TARGET_REPO
+      - User must be able to create PRs to TARGET_REPO
+
+    Create token at: https://github.com/settings/tokens
+    DO NOT commit the token to the repository.
 
 EXAMPLES:
     # Back-to-back workflow (analyze then fix)
@@ -141,8 +151,7 @@ EXAMPLES:
     $(basename "$0") --work-dir /tmp/gap-work --create-pr --test-mode
 
     # Generate, validate, and create production PR
-    $(basename "$0") --work-dir ~/prow-analysis --create-pr \\
-      --reviewers "reviewer1,reviewer2"
+    $(basename "$0") --work-dir ~/prow-analysis --create-pr
 
     # Dry run
     $(basename "$0") --work-dir /tmp/gap-work --create-pr --dry-run
@@ -152,9 +161,10 @@ EXAMPLES:
       --test-repo another-user/test-repo
 
 PREREQUISITES:
+    - GH_TOKEN or GITHUB_TOKEN environment variable set (REQUIRED)
     - gap-analysis failure report exists (run analyze-prow-failure.sh first)
     - python3, PyYAML, jq, yq installed
-    - For PR creation: gh CLI authenticated, fork repository exists
+    - For PR creation: gh CLI installed, fork repository exists
     - Target repository should have a Makefile (for generating additional files)
 
 NOTES:
@@ -167,13 +177,36 @@ NOTES:
 EOF
 }
 
-# Load configuration file
+# Validate environment prerequisites
+validate_environment() {
+    # Check for GH_TOKEN or GITHUB_TOKEN early
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [ -z "${token}" ]; then
+        log_error "GitHub Personal Access Token (PAT) is required!"
+        log_error ""
+        log_error "Set your PAT as an environment variable:"
+        log_error "  export GH_TOKEN=\"ghp_yourPersonalAccessTokenHere\""
+        log_error ""
+        log_error "Or use GITHUB_TOKEN:"
+        log_error "  export GITHUB_TOKEN=\"ghp_yourPersonalAccessTokenHere\""
+        log_error ""
+        log_error "Token requirements:"
+        log_error "  - Scopes: repo, read:org"
+        log_error "  - Must belong to: ${GITHUB_USERNAME:-rosa-gap-analysis-bot}"
+        log_error ""
+        log_error "Create token at: https://github.com/settings/tokens"
+        exit 1
+    fi
+}
+
+# Load configuration files
 load_config() {
-    local config_file="${PROJECT_ROOT}/.github-pr-config"
-    if [ -f "${config_file}" ]; then
-        log_info "Loading configuration from ${config_file}"
-        # shellcheck source=/dev/null
-        source "${config_file}"
+    # Load standard defaults (committed to repo)
+    local defaults_file="${SCRIPT_DIR}/pr-defaults.sh"
+    if [ -f "${defaults_file}" ]; then
+        log_info "Loading standard PR defaults from ${defaults_file}"
+        # shellcheck source=ci/pr-defaults.sh
+        source "${defaults_file}"
     fi
 }
 
@@ -207,14 +240,6 @@ parse_args() {
                 ;;
             --fork-repo)
                 FORK_REPO="$2"
-                shift 2
-                ;;
-            --reviewers)
-                REVIEWERS="$2"
-                shift 2
-                ;;
-            --labels)
-                LABELS="$2"
                 shift 2
                 ;;
             --skip-validation)
@@ -722,19 +747,24 @@ create_pr() {
 
     # Validate prerequisites
     if [ -z "${FORK_REPO}" ]; then
-        log_error "Fork repository is required for PR creation. Use --fork-repo flag."
+        log_error "FORK_REPO is required for PR creation."
+        log_error "Standard default should be loaded from ci/pr-defaults.sh"
+        log_error "If not loaded, check that ci/pr-defaults.sh exists."
+        log_error "Override via --fork-repo flag or FORK_REPO env var if needed."
         exit 1
     fi
 
     if [ -z "${GITHUB_USERNAME}" ]; then
         log_error "GITHUB_USERNAME is required for PR creation."
-        log_error "Set it in .github-pr-config file."
+        log_error "Standard default should be loaded from ci/pr-defaults.sh"
+        log_error "If not loaded, check that ci/pr-defaults.sh exists."
         exit 1
     fi
 
     if [ -z "${GIT_USER_NAME}" ] || [ -z "${GIT_USER_EMAIL}" ]; then
         log_error "GIT_USER_NAME and GIT_USER_EMAIL are required for commits."
-        log_error "Set them in .github-pr-config file."
+        log_error "These should be set in ci/pr-defaults.sh (standard defaults)."
+        log_error "Override via environment variables or flags if needed."
         exit 1
     fi
 
@@ -743,7 +773,7 @@ create_pr() {
     if [ "${USE_TEST_MODE}" = true ]; then
         if [ -z "${TEST_REPO}" ]; then
             log_error "Test mode requires TEST_REPO to be set"
-            log_error "Set it in .github-pr-config or use --test-repo flag"
+            log_error "Set it via environment variable or use --test-repo flag"
             exit 1
         fi
         actual_target="${TEST_REPO}"
@@ -838,6 +868,12 @@ create_pr() {
     export GIT_TERMINAL_PROMPT=0
     unset SSH_ASKPASS
     unset GIT_ASKPASS
+
+    # Disable interactive prompts for git and gh
+    export GIT_EDITOR=cat
+    export EDITOR=cat
+    export VISUAL=cat
+    export GH_PROMPT_DISABLED=1
 
     log_success "✓ Git user configured for commits"
 
@@ -1001,108 +1037,98 @@ Co-Authored-By: ${GIT_USER_NAME} <${GIT_USER_EMAIL}}"
     # Extract fork owner for PR creation
     local fork_owner="${FORK_REPO%%/*}"
 
-    # Check if PR already exists
-    log_info "Checking for existing PR from ${fork_owner}:${branch_name} to ${actual_target}"
-    local existing_pr
-    existing_pr=$(gh pr list --repo "${actual_target}" --json url,headRefName,headRepositoryOwner --jq ".[] | select(.headRepositoryOwner.login == \"${fork_owner}\" and .headRefName == \"${branch_name}\") | .url" 2>/dev/null | head -1 || echo "")
+    # Check if an OPEN PR already exists for this branch
+    # Note: We only check for OPEN PRs. Closed PRs will be handled by gh pr create.
+    log_info "Checking for existing open PR from ${fork_owner}:${branch_name} to ${actual_target}"
+    local existing_pr existing_pr_number existing_pr_url
+    existing_pr=$(gh pr list --repo "${actual_target}" --state open --json number,url,headRefName,headRepositoryOwner --jq ".[] | select(.headRepositoryOwner.login == \"${fork_owner}\" and .headRefName == \"${branch_name}\")" 2>/dev/null | head -1 || echo "")
+
+    # Variable to track if we're updating an existing PR
+    local update_existing_pr=false
 
     if [ -n "${existing_pr}" ]; then
-        log_warn "⚠️  PR already exists for branch ${branch_name}"
-        log_success "Existing PR URL: ${existing_pr}"
-        echo "${existing_pr}" > "${WORK_DIR}/pr-url.txt"
-        log_info ""
-        log_info "======================================================================"
-        log_success "✅ PR already exists - no duplicate created"
-        log_info ""
-        log_info "PR URL: ${existing_pr}"
-        log_info "Branch: ${fork_owner}:${branch_name} → ${actual_target}:${default_branch}"
-        return 0
-    fi
+        existing_pr_number=$(echo "${existing_pr}" | jq -r '.number')
+        existing_pr_url=$(echo "${existing_pr}" | jq -r '.url')
 
-    log_info "No existing PR found - proceeding with creation"
+        log_warn "⚠️  Existing open PR found for branch ${branch_name}"
+        log_info "Existing PR: ${existing_pr_url} (#${existing_pr_number})"
+        log_info "Will update existing PR #${existing_pr_number}"
+        update_existing_pr=true
+    else
+        log_info "No existing open PR found - will create new PR"
+    fi
 
     # Generate PR body from template
     log_info "Generating PR description..."
     local pr_body
     pr_body=$(generate_pr_body "${version}" "${baseline_version}" "${target_version}" "${prow_job_url}" "${html_report_url}" "${ocp_has_gates}")
 
-    log_info "Creating pull request to ${actual_target}"
-    local gh_args=()
-    gh_args+=(--repo "${actual_target}")
-    gh_args+=(--title "Add OCP ${version} Gap Analysis files")
-    gh_args+=(--body "${pr_body}")
-    gh_args+=(--base "${default_branch}")
-    gh_args+=(--head "${fork_owner}:${branch_name}")
+    # Write PR body to temp file to avoid command-line escaping issues
+    local pr_body_file
+    pr_body_file=$(mktemp)
+    trap "rm -f '${pr_body_file}'" RETURN
+    echo "${pr_body}" > "${pr_body_file}"
 
-    if [ -n "${LABELS}" ]; then
-        gh_args+=(--label "${LABELS}")
-    fi
-
-    # Add reviewers only if not empty
-    # Note: Reviewer assignment may fail if bot lacks permissions
-    local reviewer_args=()
-    if [ -n "${REVIEWERS}" ]; then
-        reviewer_args+=(--reviewer "${REVIEWERS}")
-    fi
-
-    # Debug: show the command
-    log_info "gh pr create command: ${gh_args[*]} ${reviewer_args[*]}"
-
-    # Ensure we're using the bot's token for PR creation
+    # Ensure we're using the bot's token
     local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-    local pr_url
+    local pr_url pr_stderr pr_exit_code
+    pr_stderr=$(mktemp)
+    trap "rm -f '${pr_body_file}' '${pr_stderr}'" RETURN
 
-    # Try to create PR with reviewers first
-    if [ ${#reviewer_args[@]} -gt 0 ]; then
-        pr_url=$(GH_TOKEN="${token}" gh pr create "${gh_args[@]}" "${reviewer_args[@]}" 2>&1)
-        local pr_exit_code=$?
+    if [ "${update_existing_pr}" = "true" ]; then
+        # Update existing PR
+        log_info "Updating PR #${existing_pr_number} with new changes..."
 
-        # If reviewer assignment failed, try without reviewers
-        if [ ${pr_exit_code} -ne 0 ] && echo "${pr_url}" | grep -q "does not have the correct permissions"; then
-            log_warn "⚠️  Cannot assign reviewers (permission denied), creating PR without reviewers"
-            pr_url=$(GH_TOKEN="${token}" gh pr create "${gh_args[@]}" 2>&1)
-            pr_exit_code=$?
-        fi
+        # Update title and body
+        if GH_TOKEN="${token}" GH_PROMPT_DISABLED=1 gh pr edit "${existing_pr_number}" \
+            --repo "${actual_target}" \
+            --title "Add OCP ${version} Gap Analysis files" \
+            --body-file "${pr_body_file}" 2>"${pr_stderr}"; then
 
-        # Check if PR already exists (gh pr create detected it)
-        if [ ${pr_exit_code} -ne 0 ] && echo "${pr_url}" | grep -q "already exists"; then
-            # Extract PR URL from the "already exists" message
-            local existing_url
-            existing_url=$(echo "${pr_url}" | grep -oP 'https://github\.com/[^[:space:]]+')
-            if [ -n "${existing_url}" ]; then
-                log_warn "⚠️  PR already exists (detected by gh pr create)"
-                pr_url="${existing_url}"
-                pr_exit_code=0
-            fi
-        fi
+            log_success "✓ Updated PR #${existing_pr_number}"
+            pr_url="${existing_pr_url}"
+            pr_exit_code=0
 
-        # If still failed, error out
-        if [ ${pr_exit_code} -ne 0 ]; then
-            echo "${pr_url}" >&2
+            # Add a comment about the update
+            local update_comment="🤖 **Gap Analysis Update**
+
+This PR has been updated with the latest gap-analysis results from the most recent Prow job failure.
+
+**Changes:** The commit history and file changes reflect the current state of OCP ${version} validation."
+
+            GH_TOKEN="${token}" gh pr comment "${existing_pr_number}" --repo "${actual_target}" --body "${update_comment}" 2>/dev/null || true
+        else
+            log_error "Failed to update PR #${existing_pr_number}"
+            log_error "GitHub CLI error:"
+            cat "${pr_stderr}" >&2
             return 1
         fi
     else
-        pr_url=$(GH_TOKEN="${token}" gh pr create "${gh_args[@]}" 2>&1)
-        local pr_exit_code=$?
+        # Create new PR
+        log_info "Creating new pull request to ${actual_target}"
 
-        # Check if PR already exists
-        if [ ${pr_exit_code} -ne 0 ] && echo "${pr_url}" | grep -q "already exists"; then
-            local existing_url
-            existing_url=$(echo "${pr_url}" | grep -oP 'https://github\.com/[^[:space:]]+')
-            if [ -n "${existing_url}" ]; then
-                log_warn "⚠️  PR already exists (detected by gh pr create)"
-                pr_url="${existing_url}"
-                pr_exit_code=0
-            fi
-        fi
+        # Build gh pr create command (without labels or reviewers to avoid permission issues)
+        log_info "Creating PR without reviewers or labels to avoid permission issues"
+        pr_url=$(GH_TOKEN="${token}" GH_PROMPT_DISABLED=1 gh pr create \
+            --repo "${actual_target}" \
+            --title "Add OCP ${version} Gap Analysis files" \
+            --body-file "${pr_body_file}" \
+            --base "${default_branch}" \
+            --head "${fork_owner}:${branch_name}" \
+            --no-maintainer-edit 2>"${pr_stderr}")
+        pr_exit_code=$?
 
+        # Check for any errors
         if [ ${pr_exit_code} -ne 0 ]; then
-            echo "${pr_url}" >&2
+            log_error "Failed to create pull request (exit code: ${pr_exit_code})"
+            log_error "GitHub CLI error:"
+            cat "${pr_stderr}" >&2
             return 1
         fi
+
+        log_success "✓ Pull request created successfully"
     fi
 
-    log_success "✓ Pull request created!"
     log_success "PR URL: ${pr_url}"
 
     echo "${pr_url}" > "${WORK_DIR}/pr-url.txt"
@@ -1119,6 +1145,9 @@ main() {
 
     load_config
     parse_args "$@"
+
+    # Validate environment prerequisites early
+    validate_environment
 
     # Validate work directory is provided
     if [ -z "${WORK_DIR}" ]; then
@@ -1201,6 +1230,8 @@ main() {
             log_info "You can review the files or manually clean up when done"
         fi
     fi
+
+    exit 0
 }
 
 main "$@"

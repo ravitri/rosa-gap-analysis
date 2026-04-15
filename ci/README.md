@@ -216,15 +216,47 @@ The container image has the following structure:
 - Override with `--report-dir` flag or `REPORT_DIR` environment variable
 - Reports include HTML (web-viewable) and JSON (machine-readable) formats
 
+## Quick Start
+
+### Three Main Workflows
+
+**1. Trigger Prow Jobs** (Manual job triggering):
+```bash
+./ci/trigger-prow-job.sh --wait  # Trigger and monitor job
+```
+See: [Manually Triggering Prow Jobs](#manually-triggering-prow-jobs)
+
+**2. Automated Fix** (Recommended for automation):
+```bash
+export GH_TOKEN="ghp_yourToken"  # REQUIRED
+./ci/prow-autofix.sh  # One-step: analyze + generate + PR
+```
+See: [Automated Fix Workflow](#automated-fix-workflow)
+
+**3. Manual Fix** (For review and debugging):
+```bash
+export GH_TOKEN="ghp_yourToken"  # REQUIRED for PR creation
+# Step 1: Analyze
+./ci/analyze-prow-failure.sh --work-dir ~/prow-analysis
+# Step 2: Review failure-summary.md
+# Step 3: Create PR
+./ci/fix-prow-failure.sh --work-dir ~/prow-analysis --create-pr
+```
+See: [Analyzing CI Failures](#analyzing-ci-failures) and [Fixing Prow Failures and Creating PRs](#fixing-prow-failures-and-creating-prs)
+
+**Comparison:** See [Workflow Comparison](#workflow-comparison) for details on when to use each approach.
+
 ## CI Organization
 
 The `ci/` directory is organized into functional subdirectories:
 
 ```
 ci/
-├── analyze-prow-failure.sh     # Analyze failed jobs
-├── fix-prow-failure.sh          # Generate fixes and create PRs
+├── prow-autofix.sh              # ONE-STEP automated workflow (analyze + fix + PR)
+├── analyze-prow-failure.sh      # Step 1: Analyze failed jobs
+├── fix-prow-failure.sh          # Step 2: Generate fixes and create PRs
 ├── trigger-prow-job.sh          # Manually trigger Prow jobs
+├── pr-defaults.sh               # Standard PR configuration (committed)
 ├── lib/                         # Shared CI libraries
 │   ├── prow-api.sh              # Prow deck API functions
 │   ├── failure-parser.sh        # JSON report parsing
@@ -236,15 +268,23 @@ ci/
 └── Containerfile                # CI build root image
 ```
 
-### Integration
+### Workflows
 
-- **analyze-prow-failure.sh**: Downloads artifacts, parses failures, generates summary
-- **fix-prow-failure.sh**: Generates fixes, validates, creates PR to managed-cluster-config
-- **trigger-prow-job.sh**: Triggers Prow jobs via Gangway API
+**1. Job Triggering:**
+- **trigger-prow-job.sh**: Manually trigger Prow jobs via Gangway API, monitor status
+
+**2. Automated Fix (one-step):**
+- **prow-autofix.sh**: Complete automation - analyze latest failure, generate fixes, create PR
+
+**3. Manual Fix (two-step):**
+- **analyze-prow-failure.sh**: Step 1 - Download artifacts, parse failures, generate summary
+- **fix-prow-failure.sh**: Step 2 - Generate fixes, validate, create PR to managed-cluster-config
 
 ## Analyzing CI Failures
 
-The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and generates PR requirements for managed-cluster-config.
+**RECOMMENDED:** Use the automated workflow with `prow-autofix.sh` (see [Automated Fix Workflow](#automated-fix-workflow) below).
+
+For manual analysis and review, use `analyze-prow-failure.sh`:
 
 ### Prerequisites
 
@@ -266,12 +306,12 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 
 **Options:**
 - `-j, --job-name NAME` - Specify the Prow job name to analyze (default: `periodic-ci-openshift-online-rosa-gap-analysis-main-nightly`)
-- `-i, --job-id ID` - Analyze a specific job by ID (skips top-5 job check)
+- `-i, --job-id ID` - Analyze a specific older job by ID
 - `-h, --help` - Display help message
 
 ### What It Does
 
-1. **Finds latest FAILED job** - Checks top 5 recent jobs for failures; exits gracefully if all are successful/pending
+1. **Checks most recent job** - Checks only the most recent job; exits gracefully if successful/pending
 2. **Downloads artifacts** - Uses `gcloud storage cp -r` to download entire job directory from GCS to `ci/artifacts/`
 3. **Extracts reports** - Finds gap-analysis reports in `artifacts/test/artifacts/rosa-gap-analysis-reports/`
 4. **Parses failures** - Extracts validation errors from CHECK #1-5
@@ -279,15 +319,15 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 
 ### Behavior
 
-- **Top 5 check**: Only checks the 5 most recent job executions for failures
-- **Graceful exit**: If all top 5 jobs are successful or pending, exits with informational message
+- **Most recent job check**: Checks only the most recent job execution
+- **Graceful exit**: If most recent job is successful or pending, exits with informational message
 - **Artifact download**: Downloads entire job directory using `gcloud storage cp -r`
-- **Specific job analysis**: Use `--job-id` flag to analyze a specific failed job (bypasses top-5 check)
-- **Artifact retry**: If a failed job has no artifacts, tries the next failed job in top 5
+- **Specific job analysis**: Use `--job-id` flag to analyze a specific older failed job
+- **No artifacts**: If most recent failed job has no artifacts, exits with error (use --job-id for older jobs)
 
 ### Examples
 
-**Example 1: Analyze latest failed job (checks top 5)**
+**Example 1: Analyze most recent job**
 ```bash
 ./ci/prow/analyze-failure.sh
 
@@ -295,8 +335,9 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 # [INFO] Gap Analysis Failure Analyzer
 # ======================================================================
 # [INFO] Authenticated as: user@redhat.com
-# [INFO] Finding latest failed job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly (checking top 5 jobs)...
-# [INFO] Trying failed job: 2041035894848229376
+# [INFO] Checking most recent job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly...
+# [INFO] Most recent job status: failure (ID: 2041035894848229376)
+# [INFO] Most recent job failed. Downloading artifacts for: 2041035894848229376
 # {
 #   "id": "2041035894848229376",
 #   "job_status": "failure",
@@ -328,20 +369,17 @@ The `prow/analyze-failure.sh` script automatically analyzes failed Prow jobs and
 # [SUCCESS] Failure summary: ci/artifacts/failure-summary.md
 ```
 
-**Example 2: All recent jobs successful (graceful exit)**
+**Example 2: Most recent job successful (graceful exit)**
 ```bash
 ./ci/prow/analyze-failure.sh
 
 # Output:
-# [INFO] Finding latest failed job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly (checking top 5 jobs)...
-# [SUCCESS] ✅ No failed jobs in the last 5 executions
+# [INFO] Checking most recent job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly...
+# [INFO] Most recent job status: success (ID: 2043621071365607424)
+# [SUCCESS] ✅ Most recent job is successful or pending
 # [INFO] 
-# [INFO] Recent job statuses:
+# [INFO] Most recent job status:
 #   - Job 2043621071365607424: success
-#   - Job 2043335702826917888: success
-#   - Job 2043050334288228352: success
-#   - Job 2042764965749538816: pending
-#   - Job 2042479597210849280: success
 # [INFO]
 # [INFO] All recent jobs are successful or pending. No analysis needed.
 # [INFO] To analyze a specific failed job, use: --job-id <JOB_ID>
@@ -436,7 +474,7 @@ The analyzer uses library modules organized under `ci/prow/lib/`:
 
 **ci/prow/lib/api.sh** - Prow deck API integration:
 - Uses Prow deck API at `https://prow.ci.openshift.org/prowjobs.js` (publicly accessible, no auth required)
-- `get_job_executions()` - Get recent job executions (default: top 5)
+- `get_job_executions()` - Get recent job executions (count parameter, default: 1)
 - `get_job_metadata()` - Fetch job details (status, timestamps)
 - `download_job_directory_gcs()` - Download entire job directory using `gcloud storage cp -r`
 - `find_gap_analysis_reports()` - Find gap-analysis reports in downloaded artifacts directory
@@ -536,22 +574,25 @@ The script validates:
 
 ## Fixing Prow Failures and Creating PRs
 
-Automates generating fix files and creating PRs to managed-cluster-config.
+**RECOMMENDED:** Use the automated workflow with `prow-autofix.sh` (see [Automated Fix Workflow](#automated-fix-workflow) below).
+
+For manual control and review, use the two-step workflow with `analyze-prow-failure.sh` + `fix-prow-failure.sh`:
 
 ### Quick Start
 
 **Prerequisites:** 
-- `python3`, `PyYAML`, `jq`, `yq`, `gh` CLI, `GH_TOKEN` env var
+- `python3`, `PyYAML`, `jq`, `yq`, `gh` CLI
+- **REQUIRED:** `GH_TOKEN` environment variable (see [Configuration](#configuration) below)
 - `yq` required for WIF template validation
 
-**Back-to-back workflow (recommended):**
+**Back-to-back workflow:**
 ```bash
 # Analyze and create PR (temp dir auto-cleaned)
 WORK_DIR=$(./ci/analyze-prow-failure.sh --keep-work-dir | tail -1) && \
   ./ci/fix-prow-failure.sh --work-dir "$WORK_DIR" --create-pr
 ```
 
-**Manual review:**
+**Manual review workflow:**
 ```bash
 # Step 1: Analyze
 ./ci/analyze-prow-failure.sh --work-dir ~/prow-analysis
@@ -562,6 +603,8 @@ cat ~/prow-analysis/failure-summary.md
 # Step 3: Fix and create PR
 ./ci/fix-prow-failure.sh --work-dir ~/prow-analysis --create-pr
 ```
+
+**Comparison with automated workflow:** See [comparison table](#comparison) below.
 
 ### What It Does
 
@@ -575,27 +618,135 @@ cat ~/prow-analysis/failure-summary.md
    - Per-file permission changes: `**filename:** Added: ec2:AllocateHosts, ec2:ReleaseHosts`
    - Conditional OCP ack files (only if admin gates exist)
    - File counts and footer: "Generated by [ROSA Gap Analysis](https://github.com/openshift-online/rosa-gap-analysis)"
+   - **PR Replacement:** If a PR already exists for the same branch, it will be closed with a comment and a new PR will be created with updated changes
 
 ### Configuration
 
-Set `GH_TOKEN` environment variable or create `.github-pr-config`:
+**REQUIRED: GitHub Authentication**
+
+Set your GitHub Personal Access Token before running any PR creation workflow:
 ```bash
-export GH_TOKEN="ghp_yourToken"
-TARGET_REPO="openshift/managed-cluster-config"
-FORK_REPO="bot-user/managed-cluster-config"
+export GH_TOKEN="ghp_yourToken"  # REQUIRED - Must belong to rosa-gap-analysis-bot
 ```
 
-See `ci/TESTING.md` for detailed testing guide.
+**Important:** All PR creation scripts (`fix-prow-failure.sh`, `prow-autofix.sh`) validate this early and will fail immediately if not set.
+
+**Standard Defaults (No Additional Setup Required):**
+
+All other values are standardized in `ci/pr-defaults.sh` and work out of the box:
+- `TARGET_REPO="openshift/managed-cluster-config"`
+- `FORK_REPO="rosa-gap-analysis-bot/managed-cluster-config"`
+- `GITHUB_USERNAME="rosa-gap-analysis-bot"`
+- `GIT_USER_NAME="ROSA Gap Analysis Bot"`
+- `GIT_USER_EMAIL="rosa-gap-analysis-bot@redhat.com"`
+
+**Optional Overrides (Only If Needed):**
+
+Override standard defaults via environment variables or command-line flags. See `ci/pr-defaults.sh` for available variables.
+
+```bash
+# Via environment variables
+export FORK_REPO="different-user/managed-cluster-config"
+
+# Via command-line flags
+./ci/fix-prow-failure.sh --fork-repo "..."
+```
+
+**Test Repository** (only for `--test-mode`):
+```bash
+export TEST_REPO="your-user/test-repo"
+# OR: --test-repo "your-user/test-repo"
+```
+
+See `ci/pr-defaults.sh` for standard configuration values and `ci/TESTING.md` for detailed testing guide.
+
+## Automated Fix Workflow
+
+The `prow-autofix.sh` script provides a **one-step automated workflow** that combines analysis and PR creation into a single command. This is the recommended approach for automated environments.
+
+### Quick Start
+
+```bash
+# One-step: analyze latest failure and create PR
+export GH_TOKEN="ghp_yourToken"
+./ci/prow-autofix.sh
+```
+
+### What It Does
+
+Fully automated pipeline:
+1. **Analyze** latest failed Prow job (via `analyze-prow-failure.sh`)
+2. **Generate** fix files and validate (via `fix-prow-failure.sh`)
+3. **Create PR** to managed-cluster-config
+4. **Cleanup** temporary work directory after success
+
+### Usage
+
+```bash
+./ci/prow-autofix.sh [OPTIONS]
+```
+
+**Options:**
+- `-j, --job-name NAME` - Analyze specific job name
+- `-i, --job-id ID` - Analyze specific job by ID
+- `-t, --test-mode` - Create PR to TEST_REPO (for testing)
+- `-d, --dry-run` - Preview without creating PR
+- `-v, --verbose` - Enable verbose output
+- `-h, --help` - Display help
+
+### Examples
+
+**Standard automated workflow:**
+```bash
+./ci/prow-autofix.sh
+```
+
+**Analyze specific job and create PR:**
+```bash
+./ci/prow-autofix.sh --job-id 2041035894848229376
+```
+
+**Test mode (PR to test repository):**
+```bash
+export TEST_REPO="your-user/test-managed-cluster-config"
+./ci/prow-autofix.sh --test-mode
+```
+
+**Dry run (preview without creating PR):**
+```bash
+./ci/prow-autofix.sh --dry-run
+```
+
+### When to Use
+
+**Use `prow-autofix.sh` when:**
+- Running in automated/CI environment
+- You trust the automated analysis and don't need to review before PR
+- You want the simplest workflow
+
+**Use manual workflow (analyze + fix) when:**
+- You want to review failure summary before creating PR
+- Debugging or investigating specific failures
+- Need to preserve work directory for inspection
+
+### Workflow Comparison
+
+Choose the right workflow for your needs:
+
+| Aspect | Automated (`prow-autofix.sh`) | Manual (`analyze` + `fix`) |
+|--------|-------------------------------|----------------------------|
+| **Steps** | 1 command | 2 commands |
+| **Review** | No manual review | Review between steps |
+| **Work dir** | Auto temp + cleanup | User-specified, preserved |
+| **Use case** | Automation, CI/CD | Investigation, debugging |
+| **When to use** | Automated environments, trusted workflow | Need to review failures before PR, debugging |
+
+See also: [Analyzing CI Failures](#analyzing-ci-failures) and [Fixing Prow Failures and Creating PRs](#fixing-prow-failures-and-creating-prs)
 
 ## Related Documentation
 
 - [Gap Analysis Scripts](../scripts/) - Scripts that run inside this container
-- [CI Testing Guide](TESTING.md) - End-to-end testing workflow
-- [Main README](../README.md) - Overall project documentation
-
-## Related Documentation
-
-- [Gap Analysis Scripts](../scripts/) - Scripts that run inside this container
-- [CI Testing Guide](TESTING.md) - End-to-end testing workflow
+- [CI Testing Guide](TESTING.md) - End-to-end testing workflow for analyze/fix automation
 - [Main README](../README.md) - Overall project documentation
 - [ci-operator docs](https://docs.ci.openshift.org/docs/architecture/ci-operator/) - OpenShift CI system
+- [PR Defaults Configuration](pr-defaults.sh) - Standard PR configuration (no setup required)
