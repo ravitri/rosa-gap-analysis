@@ -8,11 +8,16 @@
 
 ## Summary
 
-### Changes Detected
+{% set unique_added = comparison.actions.target_only|length %}
+{% set unique_removed = comparison.actions.baseline_only|length %}
+{% set file_level_added = comparison.file_changes | sum(attribute='actions_added_count') if comparison.file_changes else 0 %}
+{% set file_level_removed = comparison.file_changes | sum(attribute='actions_removed_count') if comparison.file_changes else 0 %}
 
-- **Added Actions:** {{ comparison.actions.target_only|length }}
-- **Removed Actions:** {{ comparison.actions.baseline_only|length }}
-- **Total Changes:** {{ (comparison.actions.target_only|length) + (comparison.actions.baseline_only|length) }}
+| Metric | Count |
+|--------|-------|
+| **Unique New Permissions** | {{ unique_added }} |
+| **Unique Removed Permissions** | {{ unique_removed }} |
+| **File-Level Changes** | {{ file_level_added + file_level_removed }}{% if comparison.file_changes %} (across {{ comparison.file_changes|length }} file{{ 's' if comparison.file_changes|length != 1 else '' }}){% endif %} |
 
 {% if comparison.actions.target_only %}
 ### Added Actions

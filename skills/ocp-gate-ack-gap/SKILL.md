@@ -4,7 +4,7 @@ description: >
   Analyze OCP admin gate acknowledgments for upgrade readiness.
   Verifies that admin gates from baseline version are properly acknowledged in target version.
   Identifies missing acknowledgment files or unacknowledged gates that would block upgrades.
-  Automatically generates comprehensive reports in Markdown, HTML, and JSON formats.
+  Automatically generates comprehensive reports in HTML and JSON formats.
 compatibility:
   required_tools:
     - python3
@@ -76,7 +76,6 @@ REPORT_DIR=/ci-artifacts python3 ./scripts/gap-ocp-gate-ack.py
 
 **Generated Reports:**
 ```bash
-reports/gap-analysis-ocp-gate-ack_4.21_to_4.22_20260327_120000.md    # Markdown
 reports/gap-analysis-ocp-gate-ack_4.21_to_4.22_20260327_120000.html  # HTML
 reports/gap-analysis-ocp-gate-ack_4.21_to_4.22_20260327_120000.json  # JSON
 ```

@@ -98,9 +98,12 @@ REPORT_DIR=${ARTIFACT_DIR}/gap-reports ./scripts/gap-all.sh
 gap-analysis-<type>_<baseline>_to_<target>_<timestamp>.<ext>
 
 Examples:
-  gap-analysis-aws-sts_4.21.7_to_4.22.0-ec.4_20260325_154133.md
+  gap-analysis-aws-sts_4.21.7_to_4.22.0-ec.4_20260325_154133.html
+  gap-analysis-aws-sts_4.21.7_to_4.22.0-ec.4_20260325_154133.json
+  gap-analysis-feature-gates_4.21_to_4.22_20260325_154148.html
   gap-analysis-feature-gates_4.21_to_4.22_20260325_154148.json
   gap-analysis-full_4.21.7_to_4.22.0-ec.4_20260325_154148.html
+  gap-analysis-full_4.21.7_to_4.22.0-ec.4_20260325_154148.json
 ```
 
 ## Examples

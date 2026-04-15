@@ -5,7 +5,7 @@ description: >
   Use when comparing AWS STS policies across OpenShift versions.
   Identifies new permissions, removed permissions, and changed permission scopes.
   Logs detected policy differences but always exits 0 on successful execution.
-  Automatically generates comprehensive reports in Markdown, HTML, and JSON formats.
+  Automatically generates comprehensive reports in HTML and JSON formats.
 compatibility:
   required_tools:
     - python3
@@ -86,7 +86,6 @@ REPORT_DIR=/ci-artifacts python3 ./scripts/gap-aws-sts.py
 
 **Generated Reports:**
 ```bash
-reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.md    # Markdown
 reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.html  # HTML
 reports/gap-analysis-aws-sts_4.21.6_to_4.22.0-ec.3_20260325_120000.json  # JSON
 ```
@@ -207,9 +206,6 @@ jq '.comparison.actions.target_only' reports/gap-analysis-aws-sts_*.json  # Adde
 jq '.comparison.actions.baseline_only' reports/gap-analysis-aws-sts_*.json  # Removed actions
 jq '.comparison.actions.common' reports/gap-analysis-aws-sts_*.json  # Unchanged actions
 
-# View human-readable report
-cat reports/gap-analysis-aws-sts_*.md
-
 # Open HTML report in browser
 firefox reports/gap-analysis-aws-sts_*.html
 ```
@@ -277,7 +273,7 @@ python3 ./scripts/gap-aws-sts.py
 ```bash
 # Execute the gap analysis
 python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22 --verbose
-# View results: cat reports/gap-analysis-aws-sts_*.md
+# View results: firefox reports/gap-analysis-aws-sts_*.html
 ```
 
 **User**: "Check AWS STS policies against latest nightly"

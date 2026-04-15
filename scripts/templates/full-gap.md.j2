@@ -8,33 +8,49 @@
 
 ## Summary
 
-### Platform Analysis Results
+| Check | Status | Unique Added | Unique Removed | Details |
+|-------|--------|--------------|----------------|---------|
+{% if aws_sts -%}
+{% set aws_added = aws_sts.comparison.actions.target_only|length -%}
+{% set aws_removed = aws_sts.comparison.actions.baseline_only|length -%}
+{% set aws_file_added = aws_sts.comparison.file_changes | sum(attribute='actions_added_count') if aws_sts.comparison.file_changes else 0 -%}
+{% set aws_file_removed = aws_sts.comparison.file_changes | sum(attribute='actions_removed_count') if aws_sts.comparison.file_changes else 0 -%}
+| CHECK #1: AWS STS Policy Diff | {% if aws_added + aws_removed == 0 %}✅ No Changes{% else %}⚠️ Changes{% endif %} | {{ aws_added }} | {{ aws_removed }} | {% if aws_file_added + aws_file_removed > 0 %}{{ aws_file_added + aws_file_removed }} file-level ({{ aws_sts.comparison.file_changes|length }} file{{ 's' if aws_sts.comparison.file_changes|length != 1 else '' }}){% else %}-{% endif %} |
+| CHECK #2: AWS STS Admin Ack | {% if aws_sts.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %} | - | - | {% if aws_sts.validation_result == 'FAIL' %}{% if aws_sts.validation_details.check_1_resources.status == 'FAIL' %}Resources validation failed{% elif aws_sts.validation_details.check_2_admin_ack.status == 'FAIL' %}Admin ack validation failed{% endif %}{% else %}-{% endif %} |
+{% endif -%}
+{% if gcp_wif -%}
+{% set gcp_added = gcp_wif.comparison.actions.target_only|length -%}
+{% set gcp_removed = gcp_wif.comparison.actions.baseline_only|length -%}
+{% set gcp_file_added = gcp_wif.comparison.file_changes | sum(attribute='permissions_added_count') if gcp_wif.comparison.file_changes else 0 -%}
+{% set gcp_file_removed = gcp_wif.comparison.file_changes | sum(attribute='permissions_removed_count') if gcp_wif.comparison.file_changes else 0 -%}
+| CHECK #3: GCP WIF Policy Diff | {% if gcp_added + gcp_removed == 0 %}✅ No Changes{% else %}⚠️ Changes{% endif %} | {{ gcp_added }} | {{ gcp_removed }} | {% if gcp_file_added + gcp_file_removed > 0 %}{{ gcp_file_added + gcp_file_removed }} file-level ({{ gcp_wif.comparison.file_changes|length }} file{{ 's' if gcp_wif.comparison.file_changes|length != 1 else '' }}){% else %}-{% endif %} |
+| CHECK #4: GCP WIF Admin Ack | {% if gcp_wif.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %} | - | - | {% if gcp_wif.validation_result == 'FAIL' %}{% if gcp_wif.validation_details.check_1_resources.status == 'FAIL' %}Resources validation failed{% elif gcp_wif.validation_details.check_2_admin_ack.status == 'FAIL' %}Admin ack validation failed{% endif %}{% else %}-{% endif %} |
+{% endif -%}
+{% if ocp_gate_ack -%}
+| CHECK #5: OCP Admin Gates | {% if ocp_gate_ack.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %} | - | - | {% if ocp_gate_ack.summary.gates_requiring_ack == 0 %}No gates requiring ack{% else %}{{ ocp_gate_ack.summary.gates_requiring_ack }} gates, {{ ocp_gate_ack.summary.unacknowledged }} unacked{% endif %} |
+{% endif -%}
+{% if feature_gates -%}
+{% set fg_added = feature_gates.comparison.added|length -%}
+{% set fg_removed = feature_gates.comparison.removed|length -%}
+{% set fg_default = feature_gates.comparison.newly_enabled_by_default|length -%}
+| CHECK #6: Feature Gates | ✅ PASS (Info) | {{ fg_added }} | {{ fg_removed }} | {% if fg_default > 0 %}{{ fg_default }} newly default{% else %}{% if fg_added + fg_removed > 0 %}{{ fg_added + fg_removed }} total changes{% else %}-{% endif %}{% endif %} |
+{% endif -%}
 
-{% if aws_sts %}
-#### AWS STS Policy Diff
+---
 
-**Status:** {% if (aws_sts.comparison.actions.target_only|length) + (aws_sts.comparison.actions.baseline_only|length) == 0 %}✅ No Changes{% else %}⚠️ {{ aws_sts.comparison.actions.target_only|length }} added, {{ aws_sts.comparison.actions.baseline_only|length }} removed{% endif %}
-
-#### AWS STS Admin Acknowledgment
-
-**Status:** {% if aws_sts.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %}
+{% if aws_sts and (aws_sts.comparison.actions.target_only or aws_sts.comparison.actions.baseline_only or aws_sts.comparison.file_changes) %}
+### AWS STS Policy Details
 
 {% if aws_sts.validation_result == 'FAIL' %}
-**Failure Reasons:**
+**❌ Validation Failed:**
 {% if aws_sts.validation_details.check_1_resources.status == 'FAIL' %}
 - Resources validation failed{% if aws_sts.validation_details.check_1_resources.errors %}: {{ aws_sts.validation_details.check_1_resources.errors[0] }}{% endif %}
 {% endif %}
 {% if aws_sts.validation_details.check_2_admin_ack.status == 'FAIL' %}
 - Admin acknowledgment validation failed{% if aws_sts.validation_details.check_2_admin_ack.errors %}: {{ aws_sts.validation_details.check_2_admin_ack.errors[0] }}{% endif %}
 {% endif %}
+
 {% endif %}
-
----
-
-#### Details
-
-**Summary:** {{ aws_sts.comparison.actions.target_only|length }} added, {{ aws_sts.comparison.actions.baseline_only|length }} removed
-
 {% if aws_sts.comparison.actions.target_only %}
 **Added Permissions:**
 {% for action in aws_sts.comparison.actions.target_only %}
@@ -67,31 +83,19 @@
 {% endif %}
 {% endif %}
 
-{% if gcp_wif %}
-#### GCP WIF Policy Diff
-
-**Status:** {% if (gcp_wif.comparison.actions.target_only|length) + (gcp_wif.comparison.actions.baseline_only|length) == 0 %}✅ No Changes{% else %}⚠️ {{ gcp_wif.comparison.actions.target_only|length }} added, {{ gcp_wif.comparison.actions.baseline_only|length }} removed{% endif %}
-
-#### GCP WIF Admin Acknowledgment
-
-**Status:** {% if gcp_wif.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %}
+{% if gcp_wif and (gcp_wif.comparison.actions.target_only or gcp_wif.comparison.actions.baseline_only or gcp_wif.comparison.file_changes) %}
+### GCP WIF Policy Details
 
 {% if gcp_wif.validation_result == 'FAIL' %}
-**Failure Reasons:**
+**❌ Validation Failed:**
 {% if gcp_wif.validation_details.check_1_resources.status == 'FAIL' %}
 - Resources validation failed{% if gcp_wif.validation_details.check_1_resources.errors %}: {{ gcp_wif.validation_details.check_1_resources.errors[0] }}{% endif %}
 {% endif %}
 {% if gcp_wif.validation_details.check_2_admin_ack.status == 'FAIL' %}
 - Admin acknowledgment validation failed{% if gcp_wif.validation_details.check_2_admin_ack.errors %}: {{ gcp_wif.validation_details.check_2_admin_ack.errors[0] }}{% endif %}
 {% endif %}
+
 {% endif %}
-
----
-
-#### Details
-
-**Summary:** {{ gcp_wif.comparison.actions.target_only|length }} added, {{ gcp_wif.comparison.actions.baseline_only|length }} removed
-
 {% if gcp_wif.comparison.actions.target_only %}
 **Added Permissions:**
 {% for action in gcp_wif.comparison.actions.target_only %}
@@ -125,12 +129,16 @@
 {% endif %}
 
 {% if ocp_gate_ack %}
-#### OCP Admin Gate Acknowledgments
+### OCP Admin Gate Acknowledgment Details
 
-**Status:** {% if ocp_gate_ack.validation_result == 'PASS' %}✅ PASS{% else %}❌ FAIL{% endif %}
+**Summary:** {{ ocp_gate_ack.summary.gates_requiring_ack }} gates requiring acknowledgment
 
+{% if ocp_gate_ack.summary.gates_requiring_ack == 0 %}
+✅ No admin gates in baseline version, no acknowledgments required
+
+{% else %}
 {% if ocp_gate_ack.validation_result == 'FAIL' %}
-**Failure Reasons:**
+**❌ Validation Failed:**
 {% if ocp_gate_ack.summary.ack_file_missing and ocp_gate_ack.summary.gates_requiring_ack > 0 %}
 - Acknowledgment file missing for version {{ ocp_gate_ack.target }}
 {% endif %}
@@ -140,15 +148,8 @@
 {% if not ocp_gate_ack.config_validation.valid %}
 - config.yaml validation failed{% if ocp_gate_ack.config_validation.errors %}: {{ ocp_gate_ack.config_validation.errors[0] }}{% endif %}
 {% endif %}
+
 {% endif %}
-
-**Summary:** {{ ocp_gate_ack.summary.gates_requiring_ack }} gates requiring acknowledgment
-
-{% if ocp_gate_ack.summary.gates_requiring_ack == 0 %}
-✅ No admin gates in baseline version, no acknowledgments required
-
-
-{% else %}
 {% if ocp_gate_ack.summary.ack_file_missing %}
 **❌ Acknowledgment File Missing:**
 - Required file: `deploy/osd-cluster-acks/ocp/{{ ocp_gate_ack.target }}/admin-ack.yaml`
@@ -179,12 +180,8 @@
 {% endif %}
 {% endif %}
 
-{% if feature_gates %}
-#### Feature Gates
-
-**Status:** ✅ PASS (Informational)
-
-**Summary:** {{ feature_gates.comparison.added|length }} new, {{ feature_gates.comparison.removed|length }} removed, {{ feature_gates.comparison.newly_enabled_by_default|length }} newly default
+{% if feature_gates and (feature_gates.comparison.added or feature_gates.comparison.removed or feature_gates.comparison.newly_enabled_by_default or feature_gates.comparison.removed_from_default) %}
+### Feature Gate Details
 
 {% if feature_gates.comparison.added %}
 **New Feature Gates:**
@@ -214,8 +211,9 @@
 {% endfor %}
 
 {% endif %}
-{% if not feature_gates.comparison.added and not feature_gates.comparison.removed and not feature_gates.comparison.newly_enabled_by_default and not feature_gates.comparison.removed_from_default %}
+{% elif feature_gates %}
+### Feature Gate Details
+
 ✅ No feature gate differences detected
 
-{% endif %}
 {% endif %}

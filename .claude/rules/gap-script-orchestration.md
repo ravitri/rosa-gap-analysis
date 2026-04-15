@@ -59,9 +59,8 @@ This is a high-impact change affecting multiple areas.
 
 ### Files to Create:
 1. scripts/gap-network.py (validation logic)
-2. scripts/templates/network.md.j2
-3. scripts/templates/network.html.j2
-4. skills/network-gap/SKILL.md
+2. scripts/templates/network.html.j2
+3. skills/network-gap/SKILL.md
 
 ### Files to Update:
 1. scripts/gap-all.sh (add execution step before feature gates)
@@ -98,7 +97,6 @@ I've detected a new gap script. Let me orchestrate all the related changes.
 | Change Type | Affected Files | Action Required |
 |-------------|---------------|-----------------|
 | **New gap script** | `scripts/gap-{name}.py` | Create with standard imports, validation logic, report generation |
-| | `scripts/templates/{name}.md.j2` | Create Markdown template |
 | | `scripts/templates/{name}.html.j2` | Create HTML template |
 | | `scripts/gap-all.sh` | Add execution step (before feature gates) |
 | | `scripts/generate-combined-report.py` | Add to report aggregation |
@@ -107,12 +105,12 @@ I've detected a new gap script. Let me orchestrate all the related changes.
 | | `CLAUDE.md` | Update validation checks table, shared libraries |
 | | `README.md` | Update validation checks table |
 | **Update gap script** | Same script file | Modify logic |
-| | Related templates | Update if output structure changes |
+| | Related template | Update if output structure changes |
 | | `docs/validation-checks.md` | Update if check behavior changes |
 | | Skill file | Update if workflow changes |
 | | `CLAUDE.md` | Update if architectural patterns change |
 | **Remove gap script** | Delete script file | Remove file |
-| | Delete templates | Remove both MD and HTML templates |
+| | Delete template | Remove HTML template |
 | | `scripts/gap-all.sh` | Remove execution step |
 | | `scripts/generate-combined-report.py` | Remove from aggregation |
 | | Delete skill | Remove skill directory |
@@ -141,7 +139,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 from common import log_info, log_success, log_error, log_warning, check_command
 from openshift_releases import resolve_baseline_version, resolve_target_version
-from reporters import generate_markdown_report, generate_html_report, generate_json_report
+from reporters import generate_html_report, generate_json_report
 
 def main():
     parser = argparse.ArgumentParser(description='<Description>')
@@ -170,7 +168,6 @@ def main():
         'validation': validation_result
     }
     
-    generate_markdown_report('<type>', template_data, args.report_dir)
     generate_html_report('<type>', template_data, args.report_dir)
     generate_json_report('<type>', template_data, args.report_dir)
     
@@ -185,18 +182,15 @@ if __name__ == '__main__':
 
 ## Template Requirements
 
-**Markdown Template (`scripts/templates/{name}.md.j2`):**
+**HTML Template (`scripts/templates/{name}.html.j2`):**
+- Bootstrap/custom CSS styling
+- Color-coded changes (green=added, red=removed, orange=changed)
+- Responsive tables
 - Include check number in header
 - Display validation results with ✓/✗ symbols
 - Show added/removed items
 - Include GitHub URLs for managed-cluster-config files
 - Timestamp and version info
-
-**HTML Template (`scripts/templates/{name}.html.j2`):**
-- Bootstrap/custom CSS styling
-- Color-coded changes (green=added, red=removed, orange=changed)
-- Responsive tables
-- Same content structure as MD template
 
 ## gap-all.sh Integration Pattern
 
@@ -259,7 +253,7 @@ Required sections:
 Before committing changes involving gap scripts:
 
 - [ ] Script follows standard import pattern
-- [ ] Both MD and HTML templates exist
+- [ ] HTML template exists
 - [ ] gap-all.sh updated (if new/removed script)
 - [ ] generate-combined-report.py updated (if new/removed script)
 - [ ] Check number assigned and documented
@@ -301,7 +295,7 @@ Before committing changes involving gap scripts:
 ./ci/prow/trigger-job.sh -j <job-name>  # Test in CI
 
 # Check template syntax
-python3 -c "from jinja2 import Template; Template(open('scripts/templates/new.md.j2').read())"
+python3 -c "from jinja2 import Template; Template(open('scripts/templates/new.html.j2').read())"
 
 # Validate script runs
 python3 scripts/gap-new.py --baseline 4.21 --target 4.22

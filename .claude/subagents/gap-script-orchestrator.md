@@ -40,10 +40,9 @@ I auto-trigger when:
    - Analysis type from docstring
    - Check number (next available)
 
-2. **Verify required files exist:**
-   - `scripts/templates/foo.md.j2`
+2. **Verify required file exists:**
    - `scripts/templates/foo.html.j2`
-   - If missing → Create stub templates based on existing patterns
+   - If missing → Create stub template based on existing patterns
 
 3. **Update gap-all.sh:**
    - Add execution block before feature gates
@@ -131,7 +130,6 @@ Script: scripts/gap-foo.py
 Check Number: #7
 
 ✅ Completed Actions:
-  • Created templates/foo.md.j2
   • Created templates/foo.html.j2
   • Updated gap-all.sh (added execution before feature gates)
   • Updated generate-combined-report.py

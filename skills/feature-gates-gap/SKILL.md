@@ -4,7 +4,7 @@ description: >
   Analyze OpenShift feature gate differences between versions.
   Identifies new feature gates, removed gates, and default enablement changes.
   Logs detected feature gate changes but always exits 0 on successful execution.
-  Automatically generates comprehensive reports in Markdown, HTML, and JSON formats.
+  Automatically generates comprehensive reports in HTML and JSON formats.
 compatibility:
   required_tools:
     - python3
@@ -81,7 +81,6 @@ REPORT_DIR=/ci-artifacts python3 ./scripts/gap-feature-gates.py
 
 **Generated Reports:**
 ```bash
-reports/gap-analysis-feature-gates_4.21_to_4.22_20260325_120000.md    # Markdown
 reports/gap-analysis-feature-gates_4.21_to_4.22_20260325_120000.html  # HTML
 reports/gap-analysis-feature-gates_4.21_to_4.22_20260325_120000.json  # JSON
 ```

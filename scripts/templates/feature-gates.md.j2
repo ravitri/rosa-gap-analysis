@@ -8,12 +8,12 @@
 
 ## Summary
 
-### Changes Detected
-
-- **New Feature Gates:** {{ comparison.added|length }}
-- **Removed Feature Gates:** {{ comparison.removed|length }}
-- **Newly Enabled by Default:** {{ comparison.newly_enabled_by_default|length }}
-- **Removed from Default:** {{ comparison.removed_from_default|length }}
+| Metric | Count |
+|--------|-------|
+| New Feature Gates | {{ comparison.added|length }} |
+| Removed Feature Gates | {{ comparison.removed|length }} |
+| Newly Enabled by Default | {{ comparison.newly_enabled_by_default|length }} |
+| Removed from Default | {{ comparison.removed_from_default|length }} |
 
 {% if comparison.added %}
 ### New Feature Gates

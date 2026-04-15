@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent / 'lib'))
 
 from common import log_info, log_success, log_error, log_warning
 from openshift_releases import resolve_baseline_version, resolve_target_version, extract_minor_version
-from reporters import generate_markdown_report, generate_html_report, generate_json_report
+from reporters import generate_html_report, generate_json_report
 from ack_validation import fetch_yaml_from_url, calculate_expected_baseline, validate_config_yaml
 
 try:
@@ -336,15 +336,10 @@ Exit Codes:
         generate_json_report(report_data, json_file)
         log_info(f"JSON report generated: {json_file}")
 
-        # Skip Markdown and HTML reports if GAP_FULL_REPORT is set (full report will include these)
+        # Skip HTML reports if GAP_FULL_REPORT is set (full report will include these)
         if os.environ.get('GAP_FULL_REPORT'):
-            log_info("Skipping Markdown/HTML reports (full report will be generated)")
+            log_info("Skipping HTML reports (full report will be generated)")
         else:
-            # Generate Markdown report
-            md_file = os.path.join(report_dir, f"gap-analysis-ocp-gate-ack_{baseline}_to_{target}_{timestamp}.md")
-            generate_markdown_report(report_data, md_file)
-            log_info(f"Markdown report generated: {md_file}")
-
             # Generate HTML report
             html_file = os.path.join(report_dir, f"gap-analysis-ocp-gate-ack_{baseline}_to_{target}_{timestamp}.html")
             generate_html_report(report_data, html_file)

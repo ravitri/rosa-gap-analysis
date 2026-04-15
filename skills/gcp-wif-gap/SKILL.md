@@ -5,7 +5,7 @@ description: >
   Use when comparing WIF configurations, IAM roles, and service account permissions
   across OpenShift versions.
   Logs detected policy differences but always exits 0 on successful execution.
-  Automatically generates comprehensive reports in Markdown, HTML, and JSON formats.
+  Automatically generates comprehensive reports in HTML and JSON formats.
 compatibility:
   required_tools:
     - python3
@@ -80,7 +80,6 @@ REPORT_DIR=/ci-artifacts python3 ./scripts/gap-gcp-wif.py
 
 **Generated Reports:**
 ```bash
-reports/gap-analysis-gcp-wif_4.21_to_4.22_20260325_120000.md    # Markdown
 reports/gap-analysis-gcp-wif_4.21_to_4.22_20260325_120000.html  # HTML
 reports/gap-analysis-gcp-wif_4.21_to_4.22_20260325_120000.json  # JSON
 ```
@@ -163,9 +162,6 @@ python3 ./scripts/gap-gcp-wif.py --baseline 4.21 --target 4.22
 jq '.comparison.actions.target_only' reports/gap-analysis-gcp-wif_*.json  # Added permissions
 jq '.comparison.actions.baseline_only' reports/gap-analysis-gcp-wif_*.json  # Removed permissions
 jq '.comparison.actions.common' reports/gap-analysis-gcp-wif_*.json  # Unchanged permissions
-
-# View human-readable report
-cat reports/gap-analysis-gcp-wif_*.md
 
 # Open HTML report in browser
 firefox reports/gap-analysis-gcp-wif_*.html

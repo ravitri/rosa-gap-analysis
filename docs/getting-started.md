@@ -68,9 +68,6 @@ REPORT_DIR=/tmp/reports ./scripts/gap-all.sh
 Reports are generated in `./reports/` (or `$REPORT_DIR`):
 
 ```bash
-# View Markdown
-cat reports/gap-analysis-full_*.md
-
 # Open HTML in browser
 firefox reports/gap-analysis-full_*.html
 
@@ -82,7 +79,6 @@ jq '.aws_sts.comparison' reports/gap-analysis-full_*.json
 
 | Format | Extension | Use Case |
 |--------|-----------|----------|
-| Markdown | `.md` | Terminal viewing, version control |
 | HTML | `.html` | Browser viewing, presentations |
 | JSON | `.json` | Programmatic analysis, CI/CD |
 
@@ -92,7 +88,7 @@ jq '.aws_sts.comparison' reports/gap-analysis-full_*.json
 
 ```bash
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
-cat reports/gap-analysis-full_*.md
+firefox reports/gap-analysis-full_*.html
 ```
 
 ### CI/CD Integration
