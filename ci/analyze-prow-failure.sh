@@ -307,8 +307,11 @@ main() {
     # Create work directory
     local created_temp=false
     if [ -z "${work_dir}" ]; then
-        # Create temporary directory in /tmp
-        work_dir=$(mktemp -d -t gap-analysis-XXXXXX)
+        # Create temporary directory under project .tmp to avoid MCC Makefile bug
+        # MCC's generate-policy.sh loops through /tmp/*/ which would process any /tmp/ subdirs
+        # By using project-relative .tmp/, we completely avoid being scanned by the policy generator
+        mkdir -p "${PROJECT_ROOT}/.tmp/gap-work"
+        work_dir=$(mktemp -d "${PROJECT_ROOT}/.tmp/gap-work/analysis-XXXXXX")
         created_temp=true
         log_info "Created temporary work directory: ${work_dir}"
     else
