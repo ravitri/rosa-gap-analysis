@@ -769,18 +769,35 @@ create_pr() {
     fi
 
     # Determine target repository
+    # CRITICAL: Ensure commits go to ONLY ONE target (TEST_REPO or TARGET_REPO, never both)
     local actual_target
-    if [ "${USE_TEST_MODE}" = true ]; then
+
+    if [ "${USE_TEST_MODE}" = true ] || [ -n "${TEST_REPO}" ]; then
+        # Test mode: use TEST_REPO
         if [ -z "${TEST_REPO}" ]; then
             log_error "Test mode requires TEST_REPO to be set"
             log_error "Set it via environment variable or use --test-repo flag"
             exit 1
         fi
         actual_target="${TEST_REPO}"
-        log_warn "⚠️  TEST MODE: Creating PR against ${actual_target}"
+        log_warn "⚠️  TEST MODE: PR will target ${actual_target} ONLY"
+        log_warn "⚠️  No commits will be pushed to ${TARGET_REPO}"
+
+        # CRITICAL SAFETY CHECK: Prevent accidental PRs to production in test mode
+        if [ "${actual_target}" = "openshift/managed-cluster-config" ]; then
+            log_error "SAFETY VIOLATION: Cannot target openshift/managed-cluster-config in test mode!"
+            log_error ""
+            log_error "To create PR to openshift/managed-cluster-config:"
+            log_error "  1. Unset TEST_REPO: unset TEST_REPO"
+            log_error "  2. Do NOT use --test-mode flag"
+            log_error "  3. Run in production mode"
+            log_error ""
+            exit 1
+        fi
     else
+        # Production mode: use TARGET_REPO
         actual_target="${TARGET_REPO}"
-        log_info "Production mode: Creating PR against ${actual_target}"
+        log_info "Production mode: PR will target ${actual_target} ONLY"
     fi
 
     # Validate GitHub prerequisites
@@ -825,9 +842,12 @@ create_pr() {
         prow_job_url="${PROW_JOB_URL}"
     fi
 
-    # Create temporary work directory in /tmp
+    # Create temporary work directory under project .tmp to avoid MCC Makefile bug
+    # MCC's generate-policy.sh loops through /tmp/*/ which would process any /tmp/ subdirs
+    # By using project-relative .tmp/, we completely avoid being scanned by the policy generator
+    mkdir -p "${PROJECT_ROOT}/.tmp/gap-work"
     local work_dir
-    work_dir=$(mktemp -d -t gap-pr-XXXXXXXXXX)
+    work_dir=$(mktemp -d "${PROJECT_ROOT}/.tmp/gap-work/pr-XXXXXXXXXX")
 
     # Set up cleanup trap
     trap "cd '${PROJECT_ROOT}' 2>/dev/null; rm -rf '${work_dir}'" EXIT
@@ -877,31 +897,54 @@ create_pr() {
 
     log_success "✓ Git user configured for commits"
 
-    # Add upstream remote
-    git remote add upstream "https://github.com/${actual_target}.git" 2>/dev/null || true
-    git fetch upstream
+    # In production mode, sync fork with upstream openshift/managed-cluster-config
+    # In test mode, we don't sync (test repo may be intentionally different)
+    if [ "${USE_TEST_MODE}" != true ]; then
+        local upstream_repo="openshift/managed-cluster-config"
+        log_info "Production mode: Syncing fork with upstream ${upstream_repo}..."
+        cd "${PROJECT_ROOT}"
+        if gh repo sync "${FORK_REPO}" --branch "master" --source "${upstream_repo}" 2>&1; then
+            log_success "✓ Fork synced with ${upstream_repo}"
+        else
+            log_warn "Could not sync fork with upstream (non-critical, continuing...)"
+        fi
+        cd "${work_dir}"
+        # Fetch to get the synced state
+        git fetch origin
+    fi
 
-    # Create branch from upstream default branch
+    # Add PR target repository as remote and fetch
+    # This is the repo we're creating the PR against
+    log_info "Fetching from PR target: ${actual_target}..."
+    git remote add target "https://github.com/${actual_target}.git" 2>/dev/null || true
+    git fetch target
+
+    # Get target repository's default branch
     local default_branch
-    # Get upstream's default branch (not origin's)
-    default_branch=$(git symbolic-ref refs/remotes/upstream/HEAD 2>/dev/null | sed 's@^refs/remotes/upstream/@@')
+    default_branch=$(git symbolic-ref refs/remotes/target/HEAD 2>/dev/null | sed 's@^refs/remotes/target/@@')
 
-    # If upstream/HEAD doesn't exist, use 'master' as fallback
+    # If target/HEAD doesn't exist, use 'master' as fallback
     if [ -z "${default_branch}" ]; then
-        log_warn "Could not detect upstream default branch, using 'master'"
+        log_warn "Could not detect target default branch, using 'master'"
         default_branch="master"
     fi
 
-    log_info "Using upstream branch: ${default_branch}"
+    log_info "Using target branch: ${default_branch} (from ${actual_target})"
 
-    # Checkout upstream default branch
-    git checkout -b "temp-${default_branch}" "upstream/${default_branch}"
+    # Create PR branch from PR target's default branch
+    # This ensures the PR shows ONLY our commit, not commits between target and upstream
+    git checkout -b "temp-${default_branch}" "target/${default_branch}"
 
     if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
         git branch -D "${branch_name}"
     fi
 
-    git checkout -b "${branch_name}" "upstream/${default_branch}"
+    git checkout -b "${branch_name}" "target/${default_branch}"
+
+    # Store the base commit for later verification
+    local base_commit
+    base_commit=$(git rev-parse HEAD)
+    log_info "Base commit: ${base_commit:0:8} (from ${actual_target}:${default_branch})"
     log_success "✓ Branch created: ${branch_name}"
 
     # Clean up temp branch
@@ -1026,6 +1069,23 @@ Co-Authored-By: ${GIT_USER_NAME} <${GIT_USER_EMAIL}}"
     fi
     log_success "✓ Commit created"
 
+    # Verify we have exactly ONE commit on top of base
+    local commit_count
+    commit_count=$(git rev-list --count ${base_commit}..HEAD)
+    log_info "Commits on top of base: ${commit_count}"
+
+    if [ "${commit_count}" -ne 1 ]; then
+        log_error "Expected exactly 1 commit, found ${commit_count}"
+        log_error ""
+        log_error "Commit history (base..HEAD):"
+        git log --oneline --decorate ${base_commit}..HEAD
+        log_error ""
+        log_error "This indicates the branch was not created from the correct base."
+        log_error "Base commit: ${base_commit} (${actual_target}:${default_branch})"
+        exit 1
+    fi
+    log_success "✓ Verified: exactly 1 commit (gap-analysis only)"
+
     # CRITICAL: Verify that 'make' is idempotent (running it again produces no changes)
     # This catches non-deterministic make behavior BEFORE PR creation
     log_info "Verifying 'make' is idempotent (prevents CI check failures)..."
@@ -1120,6 +1180,19 @@ Co-Authored-By: ${GIT_USER_NAME} <${GIT_USER_EMAIL}}"
     pr_body_file=$(mktemp)
     trap "rm -f '${pr_body_file}'" RETURN
     echo "${pr_body}" > "${pr_body_file}"
+
+    # CRITICAL SAFETY CHECK: Verify PR target before creation/update
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "PR TARGET VERIFICATION:"
+    log_info "  Target Repository: ${actual_target}"
+    log_info "  Fork Repository:   ${FORK_REPO}"
+    log_info "  Branch:            ${branch_name}"
+    if [ "${USE_TEST_MODE}" = true ] || [ -n "${TEST_REPO}" ]; then
+        log_warn "  Mode: TEST MODE - PR will NOT touch openshift/managed-cluster-config"
+    else
+        log_info "  Mode: PRODUCTION MODE"
+    fi
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     # Ensure we're using the bot's token
     local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
