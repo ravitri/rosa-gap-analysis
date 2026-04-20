@@ -34,14 +34,15 @@ Complete automation from Prow failure analysis to PR creation in a single comman
 
 The `ci/prow-autofix.sh` script provides complete end-to-end automation:
 
-1. **Analyze** - Query Prow API, download latest failed job artifacts from GCS
-2. **Parse** - Extract validation failures (CHECK #1-5) from gap-analysis reports
-3. **Generate** - Create AWS STS policies, GCP WIF templates, acknowledgment files
-4. **Validate** - JSON/YAML syntax, WIF template validation (service account/role ID constraints)
-5. **Run `make`** - Execute `make` in managed-cluster-config to generate ACM policies and hack templates (PR created only if make succeeds)
-6. **Verify idempotency** - Re-run `make` after commit to ensure deterministic behavior (prevents CI check failures)
-7. **Create PR** - Template-based description with job URLs, HTML report links, permission changes (closes existing PR if present)
-8. **Cleanup** - Automatic temporary directory cleanup after success
+1. **Check status** - Query Prow API to verify most recent job failed (exit gracefully if successful)
+2. **Analyze** - Download failed job artifacts from GCS (via `analyze-prow-failure.sh`)
+3. **Parse** - Extract validation failures (CHECK #1-5) from gap-analysis reports
+4. **Generate** - Create AWS STS policies, GCP WIF templates, acknowledgment files
+5. **Validate** - JSON/YAML syntax, WIF template validation (service account/role ID constraints)
+6. **Run `make`** - Execute `make` in managed-cluster-config to generate ACM policies and hack templates (PR created only if make succeeds)
+7. **Verify idempotency** - Re-run `make` after commit to ensure deterministic behavior (prevents CI check failures)
+8. **Create PR** - Template-based description with job URLs, HTML report links, permission changes (closes existing PR if present)
+9. **Cleanup** - Automatic temporary directory cleanup after success
 
 ## Workflow
 
@@ -87,32 +88,33 @@ export GH_TOKEN="<your-token>"
 ```
 
 **What happens:**
-1. Script queries Prow API for latest failed job
-2. Downloads gap-analysis reports from GCS
-3. Parses validation failures (CHECK #1-5)
-4. Generates AWS STS policies, GCP WIF templates, acknowledgment files
-5. Validates all generated files
-6. Creates PR to managed-cluster-config
-7. Cleans up temporary directory
+1. Script checks most recent job status via Prow API
+2. If successful, exits gracefully (nothing to fix)
+3. If failed, downloads gap-analysis reports from GCS
+4. Parses validation failures (CHECK #1-5)
+5. Generates AWS STS policies, GCP WIF templates, acknowledgment files
+6. Validates all generated files
+7. Creates PR to managed-cluster-config
+8. Cleans up temporary directory
 
 **Output:**
 ```
 [INFO] Prow Automated Fix Workflow
 ======================================================================
 
-[INFO] STEP 1/3: Analyzing latest failed Prow job...
-[SUCCESS] Found failed job: 2041035894848229376
-[SUCCESS] Analysis complete. Work directory: .tmp/gap-work/analysis-XxXxXx
+[INFO] STEP 1/3: Checking job status...
+[INFO] Checking most recent job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly...
+[INFO] Most recent job status: failure (ID: 2041035894848229376)
+[INFO] Most recent job failed. Proceeding with analysis...
 
-[INFO] STEP 2/3: Generating fix files and validating...
-[SUCCESS] Generated 12 files
-[SUCCESS] Validation passed
+[INFO] STEP 2/3: Analyzing failed Prow job...
+[SUCCESS] ✓ Analysis complete. Work directory: .tmp/gap-work/analysis-XxXxXx
 
-[INFO] STEP 3/3: Creating pull request...
-[SUCCESS] Pull request created successfully
+[INFO] STEP 3/3: Generating fix files and creating pull request...
+[SUCCESS] ✓ Pull request created successfully
 
 ======================================================================
-[SUCCESS] Automated workflow complete!
+[SUCCESS] ✓ Automated workflow complete!
 PR URL: https://github.com/openshift/managed-cluster-config/pull/12345
 ======================================================================
 ```
@@ -124,11 +126,14 @@ PR URL: https://github.com/openshift/managed-cluster-config/pull/12345
 [INFO] Prow Automated Fix Workflow
 ======================================================================
 
-[INFO] STEP 1/3: Analyzing latest failed Prow job...
+[INFO] STEP 1/3: Checking job status...
+[INFO] Most recent job status: failure (ID: 2041035894848229376)
+[INFO] Most recent job failed. Proceeding with analysis...
+
+[INFO] STEP 2/3: Analyzing failed Prow job...
 [SUCCESS] ✓ Analysis complete. Work directory: .tmp/gap-work/analysis-XxXxXx
 
-[INFO] STEP 2/3: Generating fix files and validating...
-[INFO] STEP 3/3: Creating pull request...
+[INFO] STEP 3/3: Generating fix files and creating pull request...
 [SUCCESS] ✓ Pull request created successfully
 
 ======================================================================
@@ -140,8 +145,15 @@ PR URL: https://github.com/openshift/managed-cluster-config/pull/12345
 
 **Graceful exit (no failures):**
 ```
-[SUCCESS] ✅ No failed jobs found - nothing to fix!
-[INFO] Most recent job is successful or pending. No analysis needed.
+[INFO] STEP 1/3: Checking job status...
+[INFO] Checking most recent job for: periodic-ci-openshift-online-rosa-gap-analysis-main-nightly...
+[INFO] Most recent job status: success (ID: 2046254941009350656)
+
+======================================================================
+[SUCCESS] ✓ Most recent job is success - nothing to fix!
+======================================================================
+
+[INFO] To analyze a specific older failed job, use: --job-id <JOB_ID>
 ```
 
 **Dry run mode:**
@@ -254,10 +266,10 @@ export FORK_REPO="different-user/managed-cluster-config"
 **Common scenarios:**
 
 1. **No failures found:**
-   - Checks most recent job
-   - Exits gracefully if successful or pending
-   - No action taken
-   - Use --job-id for specific older failed jobs
+   - Checks most recent job status via Prow API
+   - Exits gracefully if successful or pending (no analysis performed)
+   - Faster than previous implementation (no artifact download needed)
+   - Use --job-id to analyze specific older failed jobs (skips status check)
 
 2. **GH_TOKEN not set:**
    - Fails early with clear error message
