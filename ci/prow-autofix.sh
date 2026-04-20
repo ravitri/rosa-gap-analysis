@@ -20,6 +20,12 @@ set -euo pipefail
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source library functions
+source "${SCRIPT_DIR}/lib/prow-api.sh"
+
+# Configuration
+readonly DEFAULT_JOB_NAME="periodic-ci-openshift-online-rosa-gap-analysis-main-nightly"
+
 # Colors
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -66,7 +72,7 @@ This script automates the complete workflow:
 Temporary work directory is automatically created and cleaned up after PR creation.
 
 WORKFLOW:
-    Latest failed Prow job → Download artifacts → Parse failures →
+    Check job status → If failed: Download artifacts → Parse failures →
     Generate fixes → Validate → Create PR → Cleanup
 
 OPTIONS:
@@ -116,12 +122,10 @@ MANUAL WORKFLOW (for review/debugging):
 
 NOTES:
     - Uses temporary work directory (auto-cleaned after PR creation)
-    - Checks only the most recent job
-    - Exits gracefully (exit 0) if:
-      * Most recent job is successful (nothing to fix)
-      * Most recent job failed but has no gap-analysis artifacts
+    - Checks most recent job status first (no unnecessary analysis)
+    - Exits gracefully (exit 0) if most recent job is successful
     - Automatically validates generated files before PR creation
-    - Use --job-id to analyze specific older failed jobs
+    - Use --job-id to analyze specific older failed jobs (skips status check)
 
 EOF
 }
@@ -171,8 +175,45 @@ main() {
 
     parse_args "$@"
 
-    # Step 1: Analyze latest failed Prow job
-    log_info "STEP 1/3: Analyzing latest failed Prow job..."
+    # Use default job name if not specified
+    local job_name="${JOB_NAME:-${DEFAULT_JOB_NAME}}"
+
+    # Step 1: Check if there's a failed job to analyze
+    # Skip this check if specific job ID is provided (user wants to analyze that specific job)
+    if [ -z "${JOB_ID}" ]; then
+        log_info "STEP 1/3: Checking job status..."
+        log_info ""
+        log_info "Checking most recent job for: ${job_name}..."
+
+        # Get most recent job status
+        local executions
+        executions=$(get_job_executions "${job_name}" 1)
+
+        local job_status
+        job_status=$(echo "${executions}" | jq -r '.items[0].job_status')
+        local latest_job_id
+        latest_job_id=$(echo "${executions}" | jq -r '.items[0].id')
+
+        log_info "Most recent job status: ${job_status} (ID: ${latest_job_id})"
+
+        # If job is not failed, nothing to fix
+        if [ "${job_status}" != "failure" ] && [ "${job_status}" != "error" ]; then
+            log_info ""
+            log_success "======================================================================"
+            log_success "✓ Most recent job is ${job_status} - nothing to fix!"
+            log_success "======================================================================"
+            log_info ""
+            log_info "To analyze a specific older failed job, use: --job-id <JOB_ID>"
+            log_info "Find job IDs at: https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/${job_name}"
+            exit 0
+        fi
+
+        log_info "Most recent job failed. Proceeding with analysis..."
+        log_info ""
+    fi
+
+    # Step 2: Analyze the failed job
+    log_info "STEP 2/3: Analyzing failed Prow job..."
     log_info ""
 
     local analyze_cmd=("${SCRIPT_DIR}/analyze-prow-failure.sh" "--keep-work-dir")
@@ -195,25 +236,6 @@ main() {
 
     echo "${analyze_output}"
 
-    # Check if no failed jobs were found (graceful exit)
-    if echo "${analyze_output}" | grep -q "No failed jobs\|All recent jobs are successful"; then
-        log_info ""
-        log_success "======================================================================"
-        log_success "✓ No failed jobs found - nothing to fix!"
-        log_success "======================================================================"
-        exit 0
-    fi
-
-    # Check if failed jobs have no gap-analysis artifacts
-    if echo "${analyze_output}" | grep -q "No failed jobs with gap-analysis artifacts"; then
-        log_info ""
-        log_warn "======================================================================"
-        log_warn "⚠️  Failed jobs found, but no gap-analysis artifacts available"
-        log_warn "Jobs may have failed before gap-analysis ran"
-        log_warn "======================================================================"
-        exit 0
-    fi
-
     # Extract work directory from last line
     local work_dir
     work_dir=$(echo "${analyze_output}" | tail -1)
@@ -228,9 +250,8 @@ main() {
     log_success "✓ Analysis complete. Work directory: ${work_dir}"
     log_info ""
 
-    # Step 2 & 3: Generate fixes and create PR
-    log_info "STEP 2/3: Generating fix files and validating..."
-    log_info "STEP 3/3: Creating pull request..."
+    # Step 3: Generate fixes and create PR
+    log_info "STEP 3/3: Generating fix files and creating pull request..."
     log_info ""
 
     local fix_cmd=("${SCRIPT_DIR}/fix-prow-failure.sh" "--work-dir" "${work_dir}")

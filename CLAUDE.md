@@ -154,7 +154,7 @@ from reporters import generate_html_report, generate_json_report
 - Reports saved to `${ARTIFACT_DIR}` if specified via `REPORT_DIR` env var
 
 **Automated fix (ci/prow-autofix.sh):**
-- One-step: analyze latest FAILED Prow job → generate fixes → create PR
+- One-step: check job status → if failed: analyze → generate fixes → create PR
 - Auto-creates temp directory, auto-cleanup after PR creation
 - Requires only `GH_TOKEN` environment variable
 - Options: `--test-mode`, `--dry-run`, `--job-id`, `--verbose`

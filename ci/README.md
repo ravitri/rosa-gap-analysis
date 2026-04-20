@@ -229,7 +229,7 @@ See: [Manually Triggering Prow Jobs](#manually-triggering-prow-jobs)
 **2. Automated Fix** (Recommended for automation):
 ```bash
 export GH_TOKEN="ghp_yourToken"  # REQUIRED
-./ci/prow-autofix.sh  # One-step: analyze + generate + PR
+./ci/prow-autofix.sh  # One-step: check status → analyze → generate → PR
 ```
 See: [Automated Fix Workflow](#automated-fix-workflow)
 
@@ -274,7 +274,7 @@ ci/
 - **trigger-prow-job.sh**: Manually trigger Prow jobs via Gangway API, monitor status
 
 **2. Automated Fix (one-step):**
-- **prow-autofix.sh**: Complete automation - analyze latest failure, generate fixes, create PR
+- **prow-autofix.sh**: Complete automation - check job status, analyze if failed, generate fixes, create PR
 
 **3. Manual Fix (two-step):**
 - **analyze-prow-failure.sh**: Step 1 - Download artifacts, parse failures, generate summary
@@ -675,10 +675,11 @@ export GH_TOKEN="ghp_yourToken"
 ### What It Does
 
 Fully automated pipeline:
-1. **Analyze** latest failed Prow job (via `analyze-prow-failure.sh`)
-2. **Generate** fix files and validate (via `fix-prow-failure.sh`)
-3. **Create PR** to managed-cluster-config
-4. **Cleanup** temporary work directory after success
+1. **Check job status** - Query Prow API to verify most recent job failed (skip analysis if successful)
+2. **Analyze** - Download and parse failed job artifacts (via `analyze-prow-failure.sh`)
+3. **Generate** - Create fix files and validate (via `fix-prow-failure.sh`)
+4. **Create PR** - Submit to managed-cluster-config
+5. **Cleanup** - Remove temporary work directory after success
 
 ### Usage
 
