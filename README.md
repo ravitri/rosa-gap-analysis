@@ -4,6 +4,14 @@ Automated tools and AI-assisted analysis for comparing cloud credential policies
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+## Quick Start
+
+```bash
+make setup       # Install Python dependencies
+make test        # Run tests
+make lint        # Run linters
+```
+
 ## Overview
 
 This framework helps platform teams identify IAM permission and feature gate changes between OpenShift versions, ensuring proper cloud permissions are in place before upgrades.
