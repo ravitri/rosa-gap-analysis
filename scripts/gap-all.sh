@@ -13,7 +13,9 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 BASELINE=""
 TARGET=""
+VERSION=""
 VERBOSE=false
+DRY_RUN=false
 REPORT_DIR="${REPORT_DIR:-reports}"
 
 usage() {
@@ -25,41 +27,66 @@ Validates target version structure in managed-cluster-config repository.
 Exits 1 if target version validation fails (FAIL), exits 0 if validation passes (PASS).
 
 Optional Arguments:
-  --baseline <version>     Baseline version (default: auto-detect from latest stable)
-  --target <version>       Target version (default: auto-detect from latest candidate)
+  --baseline <version>     Baseline version (must be used with --target)
+  --target <version>       Target version (must be used with --baseline)
+  --version <version>      Single version to analyze (auto-resolves baseline and target)
+  --dry-run                Show resolved versions and exit without running analysis
   --verbose                Enable verbose logging
   --report-dir <path>      Directory to store reports (default: reports/)
   -h, --help               Show this help
 
+Note: You must use either:
+  - --version <version>              (auto-resolve baseline and target)
+  - --baseline <ver> --target <ver>  (explicit control, both required)
+
 Environment Variables:
-  BASE_VERSION            Override baseline version (lower precedence than --baseline)
-  TARGET_VERSION          Override target version (lower precedence than --target)
+  BASE_VERSION            Baseline version (must be used with TARGET_VERSION)
+  TARGET_VERSION          Target version (must be used with BASE_VERSION)
                           Special values: NIGHTLY (dev nightly), CANDIDATE (dev candidate)
+  OPENSHIFT_VERSION       Single version to analyze (auto-resolves baseline and target)
   REPORT_DIR              Directory to store reports (default: reports/)
 
 Version Resolution Precedence (highest to lowest):
-  1. Command-line flags (--baseline, --target)
-  2. Environment variables (BASE_VERSION, TARGET_VERSION)
-  3. Auto-detected (latest stable for baseline, latest candidate for target)
+  1. --version flag (auto-resolve baseline and target)
+  2. OPENSHIFT_VERSION env var (auto-resolve baseline and target)
+  3. --baseline AND --target flags (explicit control, both required)
+  4. BASE_VERSION AND TARGET_VERSION env vars (explicit control, both required)
+  5. Auto-detected (latest stable for baseline, latest candidate for target)
+
+Single Version Resolution (--version or OPENSHIFT_VERSION):
+  For GA or older versions (≤ current GA):
+    - Compares within same minor version (z-stream comparison)
+    - BASE = previous z-stream, TARGET = latest z-stream
+    - Example: --version 4.19 → BASE=4.19.21, TARGET=4.19.22
+
+  For pre-GA versions (> current GA):
+    - Compares across minor versions
+    - BASE = latest from (version-1) using baseline precedence (stable > candidate > CI > nightly)
+    - TARGET = latest for version using target precedence (candidate > CI > nightly)
+    - Example: --version 4.23 → BASE=4.22.x (candidate), TARGET=4.23.0-rc.0 (candidate if available)
 
 Examples:
   # Auto-detect versions (stable → candidate)
   $0
 
-  # Run analysis for both AWS STS and GCP WIF with explicit versions
-  $0 --baseline 4.21 --target 4.22
+  # Single version (auto-resolve baseline and target) - RECOMMENDED
+  $0 --version 4.21          # GA version: z-stream comparison (4.21.14 vs 4.21.15)
+  $0 --version 4.22          # Pre-GA: cross-minor (4.21.15 vs 4.22.0-rc.3)
+  $0 --version 4.19          # Older GA: z-stream comparison (4.19.21 vs 4.19.22)
 
-  # With verbose logging
+  # Explicit baseline and target (both required)
+  $0 --baseline 4.21 --target 4.22
   $0 --baseline 4.21.6 --target 4.22.0-ec.3 --verbose
 
+  # Dry-run mode (show versions without running analysis)
+  $0 --version 4.21 --dry-run
+  $0 --baseline 4.21 --target 4.22 --dry-run
+  $0 --dry-run               # Show auto-detected versions
+
   # Using environment variables
-  BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 $0
-
-  # Use nightly as target
-  TARGET_VERSION=NIGHTLY $0
-
-  # Use candidate as target (explicit)
-  TARGET_VERSION=CANDIDATE $0
+  OPENSHIFT_VERSION=4.22 $0                        # Same as --version 4.22
+  BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 $0  # Both required
+  BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY $0      # Nightly target
 
 Exit Codes:
   0 - All checks passed (PASS)
@@ -73,6 +100,8 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --baseline) BASELINE="$2"; shift 2 ;;
         --target) TARGET="$2"; shift 2 ;;
+        --version) VERSION="$2"; shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
         --report-dir) REPORT_DIR="$2"; shift 2 ;;
         -h|--help) usage ;;
@@ -80,26 +109,88 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Resolve baseline version with precedence: CLI > ENV > Auto-detect
-BASELINE_PULLSPEC=""
-if [[ -n "$BASELINE" ]]; then
-    log_info "Using baseline version from CLI: $BASELINE"
-elif [[ -n "${BASE_VERSION:-}" ]]; then
-    BASELINE="$BASE_VERSION"
-    log_info "Using baseline version from BASE_VERSION env: $BASELINE"
-else
-    log_info "Auto-detecting baseline version from latest stable..."
-    BASELINE=$(get_latest_stable_version)
-    BASELINE_PULLSPEC=$(get_latest_stable_pullspec)
-    log_info "Auto-detected baseline version: $BASELINE"
-    log_info "Auto-detected baseline pullspec: $BASELINE_PULLSPEC"
+# Validate flag combinations
+if [[ -n "$VERSION" ]] && ( [[ -n "$BASELINE" ]] || [[ -n "$TARGET" ]] ); then
+    log_error "Cannot use --version together with --baseline or --target"
+    log_error "Use either:"
+    log_error "  --version <version>              (auto-resolve baseline and target)"
+    log_error "  --baseline <ver> --target <ver>  (explicit control)"
+    exit 1
 fi
 
-# Resolve target version with precedence: CLI > ENV > Auto-detect
+# Validate that --baseline and --target are used together, not individually
+if ( [[ -n "$BASELINE" ]] && [[ -z "$TARGET" ]] ) || ( [[ -z "$BASELINE" ]] && [[ -n "$TARGET" ]] ); then
+    if [[ -n "$BASELINE" ]]; then
+        log_error "Cannot use --baseline without --target"
+    else
+        log_error "Cannot use --target without --baseline"
+    fi
+    log_error "Use either:"
+    log_error "  --version <version>              (auto-resolve baseline and target)"
+    log_error "  --baseline <ver> --target <ver>  (explicit control)"
+    exit 1
+fi
+
+# Version Resolution with Precedence Order:
+# 1. --version flag → auto-resolve both baseline and target
+# 2. OPENSHIFT_VERSION env var → auto-resolve both baseline and target
+# 3. --baseline AND --target (both required) → use explicit values
+# 4. BASE_VERSION AND TARGET_VERSION env vars (both required) → use explicit values
+# 5. Auto-detect both (default)
+
+BASELINE_PULLSPEC=""
 TARGET_PULLSPEC=""
-if [[ -n "$TARGET" ]]; then
-    log_info "Using target version from CLI: $TARGET"
-elif [[ -n "${TARGET_VERSION:-}" ]]; then
+
+# Check if using --version flag (auto-resolve both)
+if [[ -n "$VERSION" ]]; then
+    log_info "Resolving baseline and target from --version $VERSION..."
+    resolve_result=$(resolve_openshift_version "$VERSION")
+    resolve_exit_code=$?
+
+    if [[ $resolve_exit_code -ne 0 ]]; then
+        log_error "Failed to resolve versions from --version $VERSION"
+        exit 1
+    fi
+
+    # Check for skip scenario
+    if [[ "$resolve_result" == "SKIP SKIP" ]]; then
+        log_info "Only one z-stream version available for $VERSION, skipping gap analysis"
+        exit 0
+    fi
+
+    BASELINE=$(echo "$resolve_result" | awk '{print $1}')
+    TARGET=$(echo "$resolve_result" | awk '{print $2}')
+    log_info "Resolved from --version $VERSION: BASELINE=$BASELINE, TARGET=$TARGET"
+
+# Check if using OPENSHIFT_VERSION env var (auto-resolve both)
+elif [[ -n "${OPENSHIFT_VERSION:-}" ]]; then
+    log_info "Resolving baseline and target from OPENSHIFT_VERSION=$OPENSHIFT_VERSION..."
+    resolve_result=$(resolve_openshift_version "$OPENSHIFT_VERSION")
+    resolve_exit_code=$?
+
+    if [[ $resolve_exit_code -ne 0 ]]; then
+        log_error "Failed to resolve versions from OPENSHIFT_VERSION=$OPENSHIFT_VERSION"
+        exit 1
+    fi
+
+    # Check for skip scenario
+    if [[ "$resolve_result" == "SKIP SKIP" ]]; then
+        log_info "Only one z-stream version available for $OPENSHIFT_VERSION, skipping gap analysis"
+        exit 0
+    fi
+
+    BASELINE=$(echo "$resolve_result" | awk '{print $1}')
+    TARGET=$(echo "$resolve_result" | awk '{print $2}')
+    log_info "Resolved from OPENSHIFT_VERSION=$OPENSHIFT_VERSION: BASELINE=$BASELINE, TARGET=$TARGET"
+
+# Check if both --baseline AND --target are set (explicit control)
+elif [[ -n "$BASELINE" ]] && [[ -n "$TARGET" ]]; then
+    log_info "Using baseline and target from CLI: BASELINE=$BASELINE, TARGET=$TARGET"
+
+# Check if both BASE_VERSION AND TARGET_VERSION env vars are set (explicit control)
+elif [[ -n "${BASE_VERSION:-}" ]] && [[ -n "${TARGET_VERSION:-}" ]]; then
+    BASELINE="$BASE_VERSION"
+
     # Check if TARGET_VERSION is a special keyword
     if [[ "${TARGET_VERSION^^}" == "NIGHTLY" ]]; then
         log_info "TARGET_VERSION=NIGHTLY detected, using latest dev nightly..."
@@ -115,14 +206,41 @@ elif [[ -n "${TARGET_VERSION:-}" ]]; then
         log_info "Auto-detected candidate target pullspec: $TARGET_PULLSPEC"
     else
         TARGET="$TARGET_VERSION"
-        log_info "Using target version from TARGET_VERSION env: $TARGET"
     fi
+    log_info "Using baseline and target from env vars: BASELINE=$BASELINE, TARGET=$TARGET"
+
+# Default: Auto-detect both
 else
+    log_info "Auto-detecting baseline version from latest stable..."
+    BASELINE=$(get_latest_stable_version)
+    BASELINE_PULLSPEC=$(get_latest_stable_pullspec)
+    log_info "Auto-detected baseline version: $BASELINE"
+    log_info "Auto-detected baseline pullspec: $BASELINE_PULLSPEC"
+
     log_info "Auto-detecting target version from latest candidate..."
     TARGET=$(get_latest_candidate_version)
     TARGET_PULLSPEC=$(get_latest_candidate_pullspec)
     log_info "Auto-detected target version: $TARGET"
     log_info "Auto-detected target pullspec: $TARGET_PULLSPEC"
+fi
+
+# Dry-run mode: show resolved versions and exit
+if [[ "$DRY_RUN" == "true" ]]; then
+    log_info ""
+    log_info "========================================="
+    log_info "  Dry-Run Mode (Version Resolution Only)"
+    log_info "========================================="
+    log_success "Baseline: $BASELINE"
+    log_success "Target:   $TARGET"
+    if [[ -n "$BASELINE_PULLSPEC" ]]; then
+        log_info "Baseline pullspec: $BASELINE_PULLSPEC"
+    fi
+    if [[ -n "$TARGET_PULLSPEC" ]]; then
+        log_info "Target pullspec: $TARGET_PULLSPEC"
+    fi
+    log_info "========================================="
+    log_info "Exiting without running gap analysis"
+    exit 0
 fi
 
 # Build verbose flag

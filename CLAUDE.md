@@ -63,11 +63,20 @@ Claude follows an impact-based approach in this repository:
 # Run all analyses (auto-detects latest stable → candidate)
 ./scripts/gap-all.sh
 
-# Explicit versions
+# Single version auto-resolve (RECOMMENDED)
+./scripts/gap-all.sh --version 4.21  # GA: z-stream comparison
+./scripts/gap-all.sh --version 4.22  # Pre-GA: cross-minor
+OPENSHIFT_VERSION=4.22 ./scripts/gap-all.sh
+
+# Explicit versions (both required)
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
 
+# Dry-run mode (show versions only)
+./scripts/gap-all.sh --version 4.21 --dry-run
+./scripts/gap-all.sh --dry-run
+
 # Test against nightly
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 
 # Individual analysis
 python3 ./scripts/gap-aws-sts.py --baseline 4.21 --target 4.22
@@ -111,6 +120,15 @@ export GH_TOKEN="..." && ./ci/prow-autofix.sh
 - **Baseline**: Latest GA version line (e.g., 4.21.x) from 4-stable accepted stream, filtered by GA version from Sippy API
 - **Target**: GA+1 version (e.g., 4.22.x) - first checks 4-stable for RC (4.22.0-rc.*), falls back to 4-dev-preview for EC (4.22.0-ec.*)
 - **CLI/ENV resolution**: Minor versions (e.g., `--baseline 4.21 --target 4.22`) are resolved the same way as auto-detect (4.21 → 4.21.11, 4.22 → 4.22.0-rc.0); full versions (e.g., `4.21.7`, `4.22.0-rc.0`) are used as-is
+- **Single version resolution (NEW)**: `--version` flag or `OPENSHIFT_VERSION` env var auto-resolves baseline and target:
+  - **Baseline precedence**: stable > candidate (RC/EC) > CI > nightly
+  - **Target precedence**: candidate (RC/EC) > CI > nightly
+  - **GA or older** (version ≤ GA): z-stream comparison (e.g., `--version 4.21` → BASE=4.21.14, TARGET=4.21.15, both stable)
+  - **Pre-GA in 4-dev-preview** (e.g., 4.22): cross-minor comparison (e.g., `--version 4.22` → BASE=4.21.15 stable, TARGET=4.22.0-rc.3 candidate if available, else CI/nightly)
+  - **Other releases** (e.g., 4.23, 5.0): cross-minor comparison (e.g., `--version 4.23` → BASE=4.22.0-rc.3 candidate, TARGET=4.23.0-rc.0 candidate if available, else CI/nightly; `--version 5.0` → BASE=4.23.0-0.ci, TARGET=5.0.0-rc.0 candidate if available, else CI/nightly)
+  - Uses sorted Sippy releases to find previous version; baseline prefers stable, target prefers candidate
+- **Precedence**: `--version` > `OPENSHIFT_VERSION` > `--baseline` AND `--target` (both required) > `BASE_VERSION` AND `TARGET_VERSION` (both required) > auto-detect
+- **Validation**: `--baseline` or `--target` cannot be used individually; both must be specified together, OR use `--version` for single-version auto-resolution
 - Auto-detect: queries Sippy API for GA version (e.g., 4.21), then filters accepted streams
 - Keywords: `NIGHTLY` → latest dev nightly, `CANDIDATE` → latest dev candidate (RC from stable or EC from dev-preview)
 - Minor version normalization: `4.21.7` → `4.21` for feature gates API
@@ -224,7 +242,7 @@ from reporters import generate_html_report, generate_json_report
 - `reporters.py` - Multi-format report generation
 - `ack_validation.py` - managed-cluster-config validation logic
 - `logging.sh` - Bash logging functions
-- `openshift-releases.sh` - Bash version resolution
+- `openshift-releases.sh` - Bash version resolution (includes `resolve_openshift_version()`, `get_latest_version_for_line()`, `get_previous_z_stream_version()`, `get_all_minor_versions_from_accepted_streams()`)
 - `ci/lib/failure-parser.sh` - CI-specific Prow failure parsing utilities
 - `ci/lib/prow-api.sh` - CI-specific Prow API interaction utilities
 - `ci/lib/validate-wif-template.sh` - WIF template validation (service account/role ID constraints)

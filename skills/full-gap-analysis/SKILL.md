@@ -71,16 +71,30 @@ The analysis automatically covers both AWS STS and GCP WIF platforms.
 
 The `scripts/gap-all.sh` script runs credential policy analysis for both AWS and GCP:
 
-**Auto-detect versions (recommended):**
+**Auto-detect versions:**
 ```bash
 # Compares latest stable → latest candidate
 ./scripts/gap-all.sh
-
-# Use nightly as target
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ```
 
-**Explicit versions:**
+**Single version (RECOMMENDED):**
+```bash
+# Auto-resolves baseline and target based on version type
+# Baseline precedence: stable > candidate > CI > nightly
+# Target precedence: candidate > CI > nightly
+./scripts/gap-all.sh --version 4.21  # GA: z-stream (stable → stable)
+./scripts/gap-all.sh --version 4.22  # Pre-GA: cross-minor (stable → candidate)
+./scripts/gap-all.sh --version 4.23  # Other: cross-minor (candidate → candidate)
+
+# Using environment variable
+OPENSHIFT_VERSION=4.22 ./scripts/gap-all.sh
+
+# Dry-run mode (verify versions without running analysis)
+./scripts/gap-all.sh --version 4.21 --dry-run
+./scripts/gap-all.sh --dry-run  # Show auto-detected versions
+```
+
+**Explicit versions (both required):**
 ```bash
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
 
@@ -88,13 +102,13 @@ TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ./scripts/gap-all.sh --baseline 4.21.6 --target 4.22.0-ec.3
 ```
 
-**Environment variables:**
+**Environment variables (both required):**
 ```bash
-# Override versions
+# Override both versions
 BASE_VERSION=4.21.5 TARGET_VERSION=4.22.0-ec.2 ./scripts/gap-all.sh
 
-# Use nightly
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+# Use nightly target
+BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ```
 
 The script:
@@ -120,14 +134,14 @@ The script:
 **Use in CI/CD:**
 ```bash
 # Exit code reflects validation result: 0=all checks passed, 1=one or more checks failed
-if ./scripts/gap-all.sh; then
+if ./scripts/gap-all.sh --version 4.22; then
   echo "All validation checks passed - safe to proceed"
 else
   echo "Validation failed - review reports for details"
 fi
 
 # Test against nightly
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ```
 
 ### Step 3: Interpret Results
@@ -268,14 +282,26 @@ While scripts provide credential policy data, add strategic value:
 
 **Response**:
 ```bash
+# Single version auto-resolve (recommended)
+./scripts/gap-all.sh --version 4.22
+
+# Or explicit baseline and target
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
+```
+
+**User**: "Verify what versions will be used for 4.22 analysis"
+
+**Response**:
+```bash
+# Dry-run mode shows versions without running analysis
+./scripts/gap-all.sh --version 4.22 --dry-run
 ```
 
 **User**: "Check against latest nightly"
 
 **Response**:
 ```bash
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
 ```
 
 **If no changes:**

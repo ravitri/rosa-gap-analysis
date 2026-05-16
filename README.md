@@ -61,11 +61,21 @@ See [Installation Guide](docs/getting-started.md) for detailed setup instruction
 # Auto-detect versions (compares latest stable → latest candidate)
 ./scripts/gap-all.sh
 
-# Specify versions explicitly
+# Single version auto-resolve (RECOMMENDED)
+./scripts/gap-all.sh --version 4.21  # GA: z-stream (stable → stable)
+./scripts/gap-all.sh --version 4.22  # Pre-GA: cross-minor (stable → candidate)
+./scripts/gap-all.sh --version 4.23  # Other: cross-minor (candidate → candidate)
+OPENSHIFT_VERSION=4.22 ./scripts/gap-all.sh  # Same as --version 4.22
+
+# Explicit baseline and target (both required)
 ./scripts/gap-all.sh --baseline 4.21 --target 4.22
 
 # Test against nightly builds
-TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+BASE_VERSION=4.21 TARGET_VERSION=NIGHTLY ./scripts/gap-all.sh
+
+# Dry-run mode (show versions without running analysis)
+./scripts/gap-all.sh --version 4.21 --dry-run
+./scripts/gap-all.sh --dry-run  # Show auto-detected versions
 
 # Custom report directory
 REPORT_DIR=/custom/reports ./scripts/gap-all.sh

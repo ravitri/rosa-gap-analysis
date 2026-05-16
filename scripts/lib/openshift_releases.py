@@ -163,6 +163,304 @@ def extract_minor_version(version_string):
     return version_string
 
 
+def get_all_minor_versions_from_accepted_streams():
+    """
+    Get all unique minor versions from accepted streams, sorted.
+
+    Returns:
+        list: Sorted list of minor versions (e.g., ['4.18', '4.19', '4.20', '4.21', '4.22', '4.23', '5.0'])
+    """
+    streams = fetch_accepted_streams()
+
+    # Extract all versions from ALL streams (not just 4-stable and 4-dev-preview)
+    # This includes 5-stable, 5-dev-preview, and version-specific nightly/CI streams
+    all_versions = []
+    for stream_name, versions in streams.items():
+        if versions and isinstance(versions, list):
+            all_versions.extend(versions)
+
+    # Extract minor versions and deduplicate
+    minor_versions = set()
+    for version in all_versions:
+        minor = extract_minor_version(version)
+        minor_versions.add(minor)
+
+    # Sort versions properly (by numeric comparison)
+    sorted_versions = sorted(minor_versions, key=lambda v: list(map(int, v.split('.'))))
+
+    return sorted_versions
+
+
+def get_previous_z_stream_version(minor_version):
+    """
+    Get the previous z-stream version for a given minor version.
+
+    Args:
+        minor_version: Minor version to get previous z-stream for (e.g., "4.21")
+
+    Returns:
+        str: Previous z-stream version (e.g., "4.21.10" if latest is "4.21.11")
+        None: If only one z-stream version available
+
+    Raises:
+        SystemExit: If no stable versions found for the minor version line
+    """
+    streams = fetch_accepted_streams()
+    stable_versions = streams.get(STABLE_STREAM, [])
+
+    # Filter to versions matching this minor version line
+    matching_versions = [v for v in stable_versions if v.startswith(f"{minor_version}.")]
+
+    if not matching_versions:
+        log_error(f"No stable versions found for {minor_version}.x")
+        sys.exit(1)
+
+    # Check if we have at least 2 versions
+    if len(matching_versions) < 2:
+        log_info(f"Only one z-stream version available for {minor_version}, skipping gap analysis")
+        return None
+
+    # Return the second version (previous z-stream)
+    # Versions are already sorted newest first in accepted API
+    return matching_versions[1]
+
+
+def get_latest_version_baseline_priority(minor_version):
+    """
+    Get the latest version for baseline.
+    Precedence: stable > candidate (RC/EC) > CI > nightly
+
+    Args:
+        minor_version: Minor version line to search for (e.g., "4.22", "5.0")
+
+    Returns:
+        str: Latest version using baseline precedence
+
+    Raises:
+        SystemExit: If no version found for the minor version line
+    """
+    streams = fetch_accepted_streams()
+
+    # Extract major version from minor_version (4.22 → 4, 5.0 → 5)
+    major_version = minor_version.split('.')[0]
+    stable_stream = f"{major_version}-stable"
+    dev_preview_stream = f"{major_version}-dev-preview"
+    nightly_stream = f"{minor_version}.0-0.nightly"
+    ci_stream = f"{minor_version}.0-0.ci"
+
+    # Get versions from streams
+    stable_versions = streams.get(stable_stream, []) or []
+    dev_versions = streams.get(dev_preview_stream, []) or []
+    nightly_versions = streams.get(nightly_stream, []) or []
+    ci_versions = streams.get(ci_stream, []) or []
+
+    # Priority 1: Stable version (e.g., 4.22.5, 5.0.5)
+    stable_matches = [v for v in stable_versions
+                     if v.startswith(f"{minor_version}.")
+                     and '-rc.' not in v and '-ec.' not in v]
+    if stable_matches:
+        return stable_matches[0]
+
+    # Priority 2: RC from X-stable
+    rc_versions = [v for v in stable_versions if v.startswith(f"{minor_version}.0-rc.")]
+    if rc_versions:
+        return rc_versions[0]
+
+    # Priority 3: EC from X-dev-preview
+    ec_versions = [v for v in dev_versions if v.startswith(f"{minor_version}.0-ec.")]
+    if ec_versions:
+        return ec_versions[0]
+
+    # Priority 4: CI from X.Y.0-0.ci
+    if ci_versions:
+        return ci_versions[0]
+
+    # Priority 5: Nightly from X.Y.0-0.nightly
+    if nightly_versions:
+        return nightly_versions[0]
+
+    log_error(f"No version found for {minor_version} (checked stable, RC, EC, CI, nightly)")
+    sys.exit(1)
+
+
+def get_latest_version_target_priority(minor_version):
+    """
+    Get the latest version for target.
+    Precedence: candidate (RC/EC) > CI > nightly
+
+    Args:
+        minor_version: Minor version line to search for (e.g., "4.22", "5.0")
+
+    Returns:
+        str: Latest version using target precedence
+
+    Raises:
+        SystemExit: If no version found for the minor version line
+    """
+    streams = fetch_accepted_streams()
+
+    # Extract major version from minor_version (4.22 → 4, 5.0 → 5)
+    major_version = minor_version.split('.')[0]
+    stable_stream = f"{major_version}-stable"
+    dev_preview_stream = f"{major_version}-dev-preview"
+    nightly_stream = f"{minor_version}.0-0.nightly"
+    ci_stream = f"{minor_version}.0-0.ci"
+
+    # Get versions from streams
+    stable_versions = streams.get(stable_stream, []) or []
+    dev_versions = streams.get(dev_preview_stream, []) or []
+    nightly_versions = streams.get(nightly_stream, []) or []
+    ci_versions = streams.get(ci_stream, []) or []
+
+    # Priority 1: RC from X-stable
+    rc_versions = [v for v in stable_versions if v.startswith(f"{minor_version}.0-rc.")]
+    if rc_versions:
+        return rc_versions[0]
+
+    # Priority 2: EC from X-dev-preview
+    ec_versions = [v for v in dev_versions if v.startswith(f"{minor_version}.0-ec.")]
+    if ec_versions:
+        return ec_versions[0]
+
+    # Priority 3: CI from X.Y.0-0.ci
+    if ci_versions:
+        return ci_versions[0]
+
+    # Priority 4: Nightly from X.Y.0-0.nightly
+    if nightly_versions:
+        return nightly_versions[0]
+
+    log_error(f"No version found for {minor_version} (checked candidate, CI, nightly)")
+    sys.exit(1)
+
+
+def get_latest_version_for_line(minor_version):
+    """
+    Get the latest version for a given minor version line.
+    Uses baseline precedence (stable > candidate > CI > nightly).
+
+    This function is kept for backward compatibility.
+    For baseline/target resolution, use get_latest_version_baseline_priority()
+    or get_latest_version_target_priority() directly.
+
+    Args:
+        minor_version: Minor version line to search for (e.g., "4.22", "5.0")
+
+    Returns:
+        str: Latest version using baseline precedence
+
+    Raises:
+        SystemExit: If no version found for the minor version line
+    """
+    return get_latest_version_baseline_priority(minor_version)
+
+
+def resolve_openshift_version(openshift_version):
+    """
+    Resolve baseline and target versions from a single OPENSHIFT_VERSION.
+
+    For GA or older versions (≤ current GA): z-stream comparison
+      - BASE = previous z-stream
+      - TARGET = latest z-stream
+      - Example: 4.21 → BASE=4.21.14, TARGET=4.21.15
+
+    For pre-GA versions (> current GA): cross-minor comparison
+      - BASE = latest from (version-1): stable if GA, else candidate/nightly
+      - TARGET = latest candidate/nightly for version
+      - Example: 4.22 → BASE=4.21.15, TARGET=4.22.0-rc.3
+
+    Args:
+        openshift_version: Version to resolve (e.g., "4.21", "4.22")
+
+    Returns:
+        tuple: (baseline_version, target_version)
+        tuple: (None, None) if only one z-stream available (skip scenario)
+
+    Raises:
+        SystemExit: If version not found in Sippy releases or resolution fails
+    """
+    # Step 1: Get GA version from Sippy
+    ga_version = get_latest_ga_version()
+
+    # Step 2: Get all minor versions from accepted streams (sorted)
+    # This includes both GA and pre-GA versions
+    all_minor_versions = get_all_minor_versions_from_accepted_streams()
+
+    # Step 3: Check if version exists in accepted streams
+    if openshift_version not in all_minor_versions:
+        log_error(f"Version {openshift_version} not found in accepted streams")
+        log_error(f"Available versions: {' '.join(all_minor_versions)}")
+        sys.exit(1)
+
+    # Step 4: Compare openshift_version with ga_version
+    # Extract major and minor for comparison
+    ocp_parts = openshift_version.split('.')
+    ga_parts = ga_version.split('.')
+
+    ocp_major = int(ocp_parts[0])
+    ocp_minor = int(ocp_parts[1]) if len(ocp_parts) > 1 else 0
+    ga_major = int(ga_parts[0])
+    ga_minor = int(ga_parts[1]) if len(ga_parts) > 1 else 0
+
+    # Compare major first, then minor
+    is_ga_or_older = (ocp_major < ga_major) or (ocp_major == ga_major and ocp_minor <= ga_minor)
+
+    if is_ga_or_older:
+        # GA or older version → z-stream comparison
+        log_info(f"Version {openshift_version} is GA or older (GA={ga_version}), using z-stream comparison")
+
+        # Get previous z-stream version
+        base_version = get_previous_z_stream_version(openshift_version)
+
+        if base_version is None:
+            # Skip scenario - only one z-stream available
+            return (None, None)
+
+        # Get latest z-stream version (baseline precedence since both are stable)
+        target_version = get_latest_version_baseline_priority(openshift_version)
+
+        return (base_version, target_version)
+
+    else:
+        # Pre-GA version → cross-minor comparison
+        log_info(f"Version {openshift_version} is pre-GA (GA={ga_version}), using cross-minor comparison")
+
+        # Find previous version in sorted list
+        try:
+            idx = all_minor_versions.index(openshift_version)
+            if idx == 0:
+                log_error(f"Cannot find previous version for {openshift_version} (first in sorted list)")
+                sys.exit(1)
+            previous_version = all_minor_versions[idx - 1]
+        except ValueError:
+            log_error(f"Version {openshift_version} not found in accepted streams")
+            sys.exit(1)
+
+        log_info(f"Previous version in sorted list: {previous_version}")
+
+        # Check if previous version is GA or pre-GA
+        prev_parts = previous_version.split('.')
+        prev_major = int(prev_parts[0])
+        prev_minor = int(prev_parts[1]) if len(prev_parts) > 1 else 0
+
+        previous_is_ga = (prev_major < ga_major) or (prev_major == ga_major and prev_minor <= ga_minor)
+
+        if previous_is_ga:
+            # Previous is GA → get latest stable
+            log_info(f"Previous version {previous_version} is GA, using latest stable")
+            base_version = get_latest_stable_version(ga_version=previous_version)
+        else:
+            # Previous is pre-GA → get latest using baseline precedence
+            log_info(f"Previous version {previous_version} is pre-GA, using baseline precedence (stable > candidate > CI > nightly)")
+            base_version = get_latest_version_baseline_priority(previous_version)
+
+        # Get target version using target precedence
+        log_info(f"Target version {openshift_version} using target precedence (candidate > CI > nightly)")
+        target_version = get_latest_version_target_priority(openshift_version)
+
+        return (base_version, target_version)
+
+
 def resolve_baseline_version(cli_arg=None, env_var=None):
     """
     Resolve baseline version with precedence: CLI > ENV > Auto-detect.

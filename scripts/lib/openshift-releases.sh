@@ -513,6 +513,451 @@ get_latest_dev_nightly_pullspec() {
     get_latest_nightly_pullspec "$dev_version"
 }
 
+# Get all unique minor versions from accepted streams
+# Usage: get_all_minor_versions_from_accepted_streams
+# Returns: Newline-separated sorted list of minor versions (e.g., "4.18\n4.19\n4.20\n4.23\n5.0\n...")
+# Exit: 0 on success, 1 on failure
+get_all_minor_versions_from_accepted_streams() {
+    local streams
+    local all_versions
+
+    # Fetch accepted streams
+    streams=$(fetch_accepted_streams) || return 1
+
+    # Extract all versions from ALL streams (not just 4-stable and 4-dev-preview)
+    # This includes 5-stable, 5-dev-preview, and version-specific nightly/CI streams
+    # Then extract minor version (4.21.11 → 4.21, 4.22.0-rc.0 → 4.22, 5.0.0-ec.1 → 5.0)
+    all_versions=$(echo "$streams" | \
+        jq -r '.[] | arrays | .[]' 2>/dev/null | \
+        sed -E 's/^([0-9]+\.[0-9]+).*/\1/' | \
+        sort -u -V)
+
+    if [[ -z "$all_versions" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Failed to extract minor versions from accepted streams"
+        else
+            echo "Error: Failed to extract minor versions from accepted streams" >&2
+        fi
+        return 1
+    fi
+
+    echo "$all_versions"
+    return 0
+}
+
+# Get the previous z-stream version for a given minor version
+# Usage: get_previous_z_stream_version "4.21"
+# Returns: Previous z-stream version (e.g., "4.21.10" if latest is "4.21.11")
+# Exit: 0 on success (with version or skip message), 1 on failure
+get_previous_z_stream_version() {
+    local minor_version="$1"
+    local streams
+    local versions
+    local version_count
+    local previous_version
+
+    if [[ -z "$minor_version" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Minor version parameter required"
+        else
+            echo "Error: Minor version parameter required" >&2
+        fi
+        return 1
+    fi
+
+    # Fetch accepted streams
+    streams=$(fetch_accepted_streams) || return 1
+
+    # Get all versions for this minor version line from 4-stable
+    # Versions are already sorted newest first
+    versions=$(echo "$streams" | \
+        jq -r --arg minor "$minor_version" '.["4-stable"][] | select(startswith($minor + "."))' 2>/dev/null)
+
+    if [[ -z "$versions" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "No stable versions found for ${minor_version}.x"
+        else
+            echo "Error: No stable versions found for ${minor_version}.x" >&2
+        fi
+        return 1
+    fi
+
+    # Count how many versions we have
+    version_count=$(echo "$versions" | wc -l)
+
+    if [[ $version_count -eq 1 ]]; then
+        if command -v log_info &>/dev/null; then
+            log_info "Only one z-stream version available for ${minor_version}, skipping gap analysis"
+        else
+            echo "Info: Only one z-stream version available for ${minor_version}, skipping gap analysis" >&2
+        fi
+        # Return special marker for skip scenario
+        echo "SKIP"
+        return 0
+    fi
+
+    # Get the second version (previous z-stream)
+    previous_version=$(echo "$versions" | sed -n '2p')
+
+    if [[ -z "$previous_version" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Failed to get previous z-stream version for ${minor_version}"
+        else
+            echo "Error: Failed to get previous z-stream version for ${minor_version}" >&2
+        fi
+        return 1
+    fi
+
+    echo "$previous_version"
+    return 0
+}
+
+# Get the latest version for a given minor version line
+# Priority: stable > candidate (RC or EC) > nightly
+# Usage: get_latest_version_for_line "4.22"
+# Returns: Latest version (e.g., "4.22.5" or "4.22.0-rc.0" or "4.22.0-0.nightly-...")
+# Exit: 0 on success, 1 on failure
+# Get the latest version for baseline
+# Precedence: stable > candidate (RC/EC) > CI > nightly
+# Usage: get_latest_version_baseline_priority "4.22"
+# Returns: Latest version using baseline precedence
+# Exit: 0 on success, 1 on failure
+get_latest_version_baseline_priority() {
+    local minor_version="$1"
+    local streams
+    local major_version
+    local stable_stream
+    local dev_preview_stream
+    local nightly_stream
+    local ci_stream
+    local stable_version
+    local rc_version
+    local ec_version
+    local ci_version
+    local nightly_version
+
+    if [[ -z "$minor_version" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Minor version parameter required"
+        else
+            echo "Error: Minor version parameter required" >&2
+        fi
+        return 1
+    fi
+
+    # Fetch accepted streams
+    streams=$(fetch_accepted_streams) || return 1
+
+    # Extract major version (4.22 → 4, 5.0 → 5)
+    major_version=$(echo "$minor_version" | cut -d'.' -f1)
+    stable_stream="${major_version}-stable"
+    dev_preview_stream="${major_version}-dev-preview"
+    nightly_stream="${minor_version}.0-0.nightly"
+    ci_stream="${minor_version}.0-0.ci"
+
+    # Priority 1: Stable version (e.g., 4.22.5, 5.0.5)
+    stable_version=$(echo "$streams" | \
+        jq -r --arg stream "$stable_stream" --arg minor "$minor_version" '.[$stream][]? | select(startswith($minor + ".") and (contains("-rc.") or contains("-ec.") | not))' 2>/dev/null | head -1)
+
+    if [[ -n "$stable_version" ]] && [[ "$stable_version" != "null" ]]; then
+        echo "$stable_version"
+        return 0
+    fi
+
+    # Priority 2: RC from X-stable
+    rc_version=$(echo "$streams" | \
+        jq -r --arg stream "$stable_stream" --arg minor "$minor_version" '.[$stream][]? | select(startswith($minor + ".0-rc."))' 2>/dev/null | head -1)
+
+    if [[ -n "$rc_version" ]] && [[ "$rc_version" != "null" ]]; then
+        echo "$rc_version"
+        return 0
+    fi
+
+    # Priority 3: EC from X-dev-preview
+    ec_version=$(echo "$streams" | \
+        jq -r --arg stream "$dev_preview_stream" --arg minor "$minor_version" '.[$stream][]? | select(startswith($minor + ".0-ec."))' 2>/dev/null | head -1)
+
+    if [[ -n "$ec_version" ]] && [[ "$ec_version" != "null" ]]; then
+        echo "$ec_version"
+        return 0
+    fi
+
+    # Priority 4: CI from X.Y.0-0.ci
+    ci_version=$(echo "$streams" | jq -r --arg stream "$ci_stream" '.[$stream][0]' 2>/dev/null)
+
+    if [[ -n "$ci_version" ]] && [[ "$ci_version" != "null" ]]; then
+        echo "$ci_version"
+        return 0
+    fi
+
+    # Priority 5: Nightly from X.Y.0-0.nightly
+    nightly_version=$(echo "$streams" | jq -r --arg stream "$nightly_stream" '.[$stream][0]' 2>/dev/null)
+
+    if [[ -n "$nightly_version" ]] && [[ "$nightly_version" != "null" ]]; then
+        echo "$nightly_version"
+        return 0
+    fi
+
+    if command -v log_error &>/dev/null; then
+        log_error "No version found for ${minor_version} (checked stable, RC, EC, CI, nightly)"
+    else
+        echo "Error: No version found for ${minor_version}" >&2
+    fi
+    return 1
+}
+
+# Get the latest version for target
+# Precedence: candidate (RC/EC) > CI > nightly
+# Usage: get_latest_version_target_priority "4.22"
+# Returns: Latest version using target precedence
+# Exit: 0 on success, 1 on failure
+get_latest_version_target_priority() {
+    local minor_version="$1"
+    local streams
+    local major_version
+    local stable_stream
+    local dev_preview_stream
+    local nightly_stream
+    local ci_stream
+    local rc_version
+    local ec_version
+    local ci_version
+    local nightly_version
+
+    if [[ -z "$minor_version" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Minor version parameter required"
+        else
+            echo "Error: Minor version parameter required" >&2
+        fi
+        return 1
+    fi
+
+    # Fetch accepted streams
+    streams=$(fetch_accepted_streams) || return 1
+
+    # Extract major version (4.22 → 4, 5.0 → 5)
+    major_version=$(echo "$minor_version" | cut -d'.' -f1)
+    stable_stream="${major_version}-stable"
+    dev_preview_stream="${major_version}-dev-preview"
+    nightly_stream="${minor_version}.0-0.nightly"
+    ci_stream="${minor_version}.0-0.ci"
+
+    # Priority 1: RC from X-stable
+    rc_version=$(echo "$streams" | \
+        jq -r --arg stream "$stable_stream" --arg minor "$minor_version" '.[$stream][]? | select(startswith($minor + ".0-rc."))' 2>/dev/null | head -1)
+
+    if [[ -n "$rc_version" ]] && [[ "$rc_version" != "null" ]]; then
+        echo "$rc_version"
+        return 0
+    fi
+
+    # Priority 2: EC from X-dev-preview
+    ec_version=$(echo "$streams" | \
+        jq -r --arg stream "$dev_preview_stream" --arg minor "$minor_version" '.[$stream][]? | select(startswith($minor + ".0-ec."))' 2>/dev/null | head -1)
+
+    if [[ -n "$ec_version" ]] && [[ "$ec_version" != "null" ]]; then
+        echo "$ec_version"
+        return 0
+    fi
+
+    # Priority 3: CI from X.Y.0-0.ci
+    ci_version=$(echo "$streams" | jq -r --arg stream "$ci_stream" '.[$stream][0]' 2>/dev/null)
+
+    if [[ -n "$ci_version" ]] && [[ "$ci_version" != "null" ]]; then
+        echo "$ci_version"
+        return 0
+    fi
+
+    # Priority 4: Nightly from X.Y.0-0.nightly
+    nightly_version=$(echo "$streams" | jq -r --arg stream "$nightly_stream" '.[$stream][0]' 2>/dev/null)
+
+    if [[ -n "$nightly_version" ]] && [[ "$nightly_version" != "null" ]]; then
+        echo "$nightly_version"
+        return 0
+    fi
+
+    if command -v log_error &>/dev/null; then
+        log_error "No version found for ${minor_version} (checked candidate, CI, nightly)"
+    else
+        echo "Error: No version found for ${minor_version}" >&2
+    fi
+    return 1
+}
+
+# Get the latest version for a given minor version line
+# Uses baseline precedence (stable > candidate > CI > nightly)
+# This function is kept for backward compatibility
+# Usage: get_latest_version_for_line "4.22"
+# Returns: Latest version using baseline precedence
+# Exit: 0 on success, 1 on failure
+get_latest_version_for_line() {
+    get_latest_version_baseline_priority "$1"
+}
+
+# Resolve BASE and TARGET versions from a single OPENSHIFT_VERSION
+# Usage: resolve_openshift_version "4.23"
+# Returns: Two values on stdout: BASE_VERSION TARGET_VERSION (space-separated)
+# Exit: 0 on success (or skip scenario), 1 on failure
+resolve_openshift_version() {
+    local openshift_version="$1"
+    local ga_version
+    local all_minor_versions
+    local all_releases
+    local version_exists
+    local is_ga_or_older
+    local base_version
+    local target_version
+    local previous_version
+    local previous_is_ga
+
+    if [[ -z "$openshift_version" ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "OPENSHIFT_VERSION parameter required"
+        else
+            echo "Error: OPENSHIFT_VERSION parameter required" >&2
+        fi
+        return 1
+    fi
+
+    # Step 1: Get GA version from Sippy
+    ga_version=$(get_latest_ga_version) || return 1
+
+    # Step 2: Get all minor versions from accepted streams (sorted)
+    # This includes both GA and pre-GA versions
+    all_minor_versions=$(get_all_minor_versions_from_accepted_streams) || return 1
+
+    # Step 3: Check if OPENSHIFT_VERSION exists in accepted streams
+    version_exists=$(echo "$all_minor_versions" | grep -c "^${openshift_version}$" || true)
+
+    if [[ $version_exists -eq 0 ]]; then
+        if command -v log_error &>/dev/null; then
+            log_error "Version ${openshift_version} not found in accepted streams"
+            log_error "Available versions: $(echo "$all_minor_versions" | tr '\n' ' ')"
+        else
+            echo "Error: Version ${openshift_version} not found in accepted streams" >&2
+            echo "Available versions: $(echo "$all_minor_versions" | tr '\n' ' ')" >&2
+        fi
+        return 1
+    fi
+
+    # Step 4: Compare openshift_version with ga_version
+    # Extract major and minor version numbers for comparison
+    local openshift_major
+    local openshift_minor
+    local ga_major
+    local ga_minor
+    openshift_major=$(echo "$openshift_version" | cut -d'.' -f1)
+    openshift_minor=$(extract_minor_version "$openshift_version")
+    ga_major=$(echo "$ga_version" | cut -d'.' -f1)
+    ga_minor=$(extract_minor_version "$ga_version")
+
+    # Compare major version first, then minor version
+    if [[ $openshift_major -lt $ga_major ]] || ( [[ $openshift_major -eq $ga_major ]] && [[ $openshift_minor -le $ga_minor ]] ); then
+        # GA or older version → z-stream comparison
+        is_ga_or_older=true
+
+        if command -v log_info &>/dev/null; then
+            log_info "Version ${openshift_version} is GA or older (GA=${ga_version}), using z-stream comparison"
+        fi
+
+        # Get previous z-stream version
+        base_version=$(get_previous_z_stream_version "$openshift_version")
+        local prev_result=$?
+
+        if [[ $prev_result -ne 0 ]]; then
+            return 1
+        fi
+
+        # Check for skip scenario
+        if [[ "$base_version" == "SKIP" ]]; then
+            if command -v log_info &>/dev/null; then
+                log_info "Skipping gap analysis for ${openshift_version} (only one z-stream available)"
+            fi
+            echo "SKIP SKIP"
+            return 0
+        fi
+
+        # Get latest z-stream version (baseline precedence since both are stable)
+        target_version=$(get_latest_version_baseline_priority "$openshift_version")
+        if [[ $? -ne 0 ]]; then
+            return 1
+        fi
+
+    else
+        # Pre-GA version → cross-minor comparison
+        is_ga_or_older=false
+
+        if command -v log_info &>/dev/null; then
+            log_info "Version ${openshift_version} is pre-GA (GA=${ga_version}), using cross-minor comparison"
+        fi
+
+        # Find previous version in sorted list
+        previous_version=$(echo "$all_minor_versions" | grep -B1 "^${openshift_version}$" | head -1)
+
+        if [[ -z "$previous_version" ]] || [[ "$previous_version" == "$openshift_version" ]]; then
+            if command -v log_error &>/dev/null; then
+                log_error "Cannot find previous version for ${openshift_version} in sorted list"
+            else
+                echo "Error: Cannot find previous version for ${openshift_version}" >&2
+            fi
+            return 1
+        fi
+
+        if command -v log_info &>/dev/null; then
+            log_info "Previous version in sorted list: ${previous_version}"
+        fi
+
+        # Check if previous version is GA or pre-GA
+        local previous_major
+        local previous_minor
+        previous_major=$(echo "$previous_version" | cut -d'.' -f1)
+        previous_minor=$(extract_minor_version "$previous_version")
+
+        # Compare major version first, then minor version
+        if [[ $previous_major -lt $ga_major ]] || ( [[ $previous_major -eq $ga_major ]] && [[ $previous_minor -le $ga_minor ]] ); then
+            # Previous is GA → get latest stable
+            previous_is_ga=true
+
+            if command -v log_info &>/dev/null; then
+                log_info "Previous version ${previous_version} is GA, using latest stable"
+            fi
+
+            base_version=$(get_latest_stable_version)
+            if [[ $? -ne 0 ]]; then
+                return 1
+            fi
+
+        else
+            # Previous is pre-GA → get latest using baseline precedence
+            previous_is_ga=false
+
+            if command -v log_info &>/dev/null; then
+                log_info "Previous version ${previous_version} is pre-GA, using baseline precedence (stable > candidate > CI > nightly)"
+            fi
+
+            base_version=$(get_latest_version_baseline_priority "$previous_version")
+            if [[ $? -ne 0 ]]; then
+                return 1
+            fi
+        fi
+
+        # Get target version using target precedence
+        if command -v log_info &>/dev/null; then
+            log_info "Target version ${openshift_version} using target precedence (candidate > CI > nightly)"
+        fi
+
+        target_version=$(get_latest_version_target_priority "$openshift_version")
+        if [[ $? -ne 0 ]]; then
+            return 1
+        fi
+    fi
+
+    # Return both versions
+    echo "$base_version $target_version"
+    return 0
+}
+
 # Export functions for use in other scripts
 export -f extract_minor_version
 export -f extract_version_from_candidate
@@ -528,6 +973,10 @@ export -f get_latest_stable_pullspec
 export -f get_latest_nightly_pullspec
 export -f get_latest_dev_nightly_version
 export -f get_latest_dev_nightly_pullspec
+export -f get_all_minor_versions_from_accepted_streams
+export -f get_previous_z_stream_version
+export -f get_latest_version_for_line
+export -f resolve_openshift_version
 
 # If script is executed directly (not sourced), provide CLI interface
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -563,6 +1012,30 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             fi
             get_latest_nightly_pullspec "${2}"
             ;;
+        --resolve-version)
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 --resolve-version <version>" >&2
+                exit 1
+            fi
+            resolve_openshift_version "${2}"
+            ;;
+        --all-minor-versions)
+            get_all_minor_versions_from_accepted_streams
+            ;;
+        --previous-z-stream)
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 --previous-z-stream <version>" >&2
+                exit 1
+            fi
+            get_previous_z_stream_version "${2}"
+            ;;
+        --latest-for-line)
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 --latest-for-line <version>" >&2
+                exit 1
+            fi
+            get_latest_version_for_line "${2}"
+            ;;
         --help|-h|"")
             cat <<EOF
 OpenShift Release Information Library
@@ -579,6 +1052,10 @@ Commands:
   --latest-nightly                 Get latest nightly version (for dev version)
   --latest-nightly-pullspec        Get pullspec for latest nightly version (for dev version)
   --nightly <version>              Get latest nightly pullspec for specific version
+  --resolve-version <version>      Resolve BASE and TARGET versions from single version
+  --all-minor-versions             Get all minor versions from accepted streams (sorted)
+  --previous-z-stream <version>    Get previous z-stream version for a minor version
+  --latest-for-line <version>      Get latest version for a minor version line
   --help, -h                       Show this help
 
 Examples:
@@ -591,6 +1068,11 @@ Examples:
   $0 --latest-nightly                 # Output: 4.22.0-0.nightly-2026-03-13-184504 (dev version)
   $0 --latest-nightly-pullspec        # Output: registry.ci.openshift.org/ocp/release:4.22.0-0.nightly...
   $0 --nightly 4.22                   # Output: registry.ci.openshift.org/ocp/release:4.22...
+  $0 --resolve-version 4.21           # Output: 4.21.10 4.21.11 (z-stream comparison for GA)
+  $0 --resolve-version 4.23           # Output: 4.22.x 4.23.0-0.nightly-... (cross-minor for pre-GA)
+  $0 --all-minor-versions             # Output: 4.18\n4.19\n4.20\n4.21\n4.22\n4.23
+  $0 --previous-z-stream 4.21         # Output: 4.21.10 (if latest is 4.21.11)
+  $0 --latest-for-line 4.22           # Output: 4.22.0-rc.0 or 4.22.0-ec.5 (stable > RC > EC > nightly)
 
 Notes:
   - Dev version is always exactly 1 minor version ahead of GA (e.g., GA=4.21, Dev=4.22)
@@ -619,6 +1101,10 @@ Additional functions available when sourced:
   - extract_minor_version
   - extract_version_from_candidate
   - extract_version_from_stable
+  - get_all_minor_versions_from_accepted_streams
+  - get_previous_z_stream_version
+  - get_latest_version_for_line
+  - resolve_openshift_version
 
 EOF
             exit 0
